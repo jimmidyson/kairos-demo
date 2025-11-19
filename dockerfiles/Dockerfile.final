@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+
+ARG BASE_IMAGE_VERSION
+ARG BASE_IMAGE="base-image:${BASE_IMAGE_VERSION}-${TARGETARCH}"
+
+FROM ${BASE_IMAGE}
+ARG TARGETARCH
+ARG VERSION=0.0.0-dev.0
+
+COPY outputs/${TARGETARCH}/*.sysext.raw /var/lib/kairos/extensions/
+
+RUN --mount=type=secret,id=ubuntu-pro-token pro attach "$(cat /run/secrets/ubuntu-pro-token)"
+RUN pro status
+RUN pro enable usg
+RUN apt install usg
+RUN usg fix cis_level1_server
+RUN apt install -y rsync

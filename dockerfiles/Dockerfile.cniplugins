@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+
+FROM ubuntu:24.04 AS getter
+
+RUN apt-get update && apt-get install -y curl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
+ARG CNI_PLUGINS_VERSION=1.8.0
+ARG TARGETARCH
+RUN curl -fsSLO "https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGINS_VERSION}/cni-plugins-linux-${TARGETARCH}-v${CNI_PLUGINS_VERSION}.tgz"
+RUN curl -fsSLO "https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGINS_VERSION}/cni-plugins-linux-${TARGETARCH}-v${CNI_PLUGINS_VERSION}.tgz.sha512"
+RUN sha512sum --check --ignore-missing "cni-plugins-linux-${TARGETARCH}-v${CNI_PLUGINS_VERSION}.tgz.sha512"
+RUN mkdir -p /opt/cni/bin
+RUN tar Cxzvf /opt/cni/bin "cni-plugins-linux-${TARGETARCH}-v${CNI_PLUGINS_VERSION}.tgz"
+
+FROM scratch
+COPY --from=getter /opt/cni/bin /opt/cni/bin
