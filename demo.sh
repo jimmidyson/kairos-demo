@@ -7,101 +7,135 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 
-if [ -z "${VERSION:-}" ]; then
-  echo "VERSION environment variable is not set"
-  exit 1
+function print() {
+  if [ -t 0 ]; then
+    prefix='\033[34;1m▶\033[0m'
+  else
+    prefix='=>'
+  fi
+  printf "${prefix} ${1}\n"
+}
+
+readonly KAIROS_KIND_CLUSTER_NAME="${KAIROS_KIND_CLUSTER_NAME:-kairos-demo}"
+
+readonly KUBECONFIG="${SCRIPT_DIR}/kairos-kind.kubeconfig"
+export KUBECONFIG
+
+if kind get clusters | grep -q '^kairos-demo$'; then
+  print "KIND cluster ${KAIROS_KIND_CLUSTER_NAME} already exists"
+else
+  print 'Getting latest available KIND node version'
+  LATEST_KIND_NODE_VERSION="ghcr.io/mesosphere/kind-node:$(crane ls ghcr.io/mesosphere/kind-node | grep -v 64 | sort -rV | head -1)"
+  readonly LATEST_KIND_NODE_VERSION
+
+  print "Creating KIND cluster ${KAIROS_KIND_CLUSTER_NAME}..."
+  kind create cluster --name "${KAIROS_KIND_CLUSTER_NAME}" --image "${LATEST_KIND_NODE_VERSION}"
 fi
 
-# Build base images for both architectures with arch suffix in tag
-echo "Building base images..."
-for arch in amd64 arm64; do
-  docker buildx build --progress=plain \
-    --platform="linux/${arch}" \
-    --load \
-    --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.base" \
-    --build-arg=VERSION="${VERSION}" \
-    --tag="base-image:${VERSION}-${arch}" \
-    "${SCRIPT_DIR}"
-done
-
-declare -rA containerd_config=(
-    ["version"]="2.1.4"
-    ["build_arg"]="CONTAINERD_VERSION"
-)
-
-declare -rA runc_config=(
-    ["version"]="1.3.2"
-    ["build_arg"]="RUNC_VERSION"
-)
-
-declare -rA cniplugins_config=(
-    ["version"]="1.8.0"
-    ["build_arg"]="CNI_PLUGINS_VERSION"
-)
-
-readonly AURORABOOT_VERSION="${AURORABOOT_VERSION:-v0.13.0}"
-
-# Build containerd and runc images for both architectures
-for component in containerd runc cniplugins; do
-    for arch in amd64 arm64; do
-      mkdir -p "${SCRIPT_DIR}/outputs/${arch}"
-
-      echo "Building ${component} for ${arch}..."
-
-      declare -n config="${component}_config"
-
-      docker buildx build --progress=plain \
-        --platform="linux/${arch}" \
-        --load \
-        --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.${component}" \
-        --build-arg="${config["build_arg"]}=${config["version"]}" \
-        --tag="${component}:${config["version"]}-${arch}" \
-        "${SCRIPT_DIR}"
-
-      rm -f "${SCRIPT_DIR}/outputs/${arch}/${component}-${config["version"]}"*
-      docker container run \
-        --rm \
-        --mount="type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock,readonly" \
-        --mount="type=bind,src=${SCRIPT_DIR}/keys,dst=/keys,readonly" \
-        --mount="type=bind,src=${SCRIPT_DIR}/outputs/${arch},dst=/build" \
-        "quay.io/kairos/auroraboot:${AURORABOOT_VERSION}" \
-        sysext \
-        --private-key=/keys/code_signing_key.key --certificate=/keys/code_signing_cert.pem \
-        --output=/build \
-        --arch=${arch} \
-        "${component}-${config["version"]}" \
-        "${component}:${config["version"]}-${arch}"
-    done
-done
-
-if [ -z "${UBUNTU_PRO_TOKEN:-}" ]; then
-  echo "UBUNTU_PRO_TOKEN environment variable is not set"
-  exit 1
+if helm status -n cert-manager cert-manager 2>/dev/null | grep -q '^STATUS: deployed$'; then
+  print 'cert-manager is already installed'
+else
+  print 'Installing cert-manager...'
+  helm upgrade --install \
+    cert-manager oci://quay.io/jetstack/charts/cert-manager \
+    --version v1.19.1 \
+    --namespace cert-manager \
+    --create-namespace \
+    --set crds.enabled=true \
+    --wait --wait-for-jobs \
+    --hide-notes
 fi
 
-echo "Building final image..."
-for arch in amd64 arm64; do
-  docker buildx build --progress=plain \
-    --platform="linux/${arch}" \
-    --load \
-    --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.final" \
-    --secret="id=ubuntu-pro-token,env=UBUNTU_PRO_TOKEN" \
-    --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
-    --tag="final-image:${VERSION}-${arch}" "${SCRIPT_DIR}"
+if helm status -n kairos-system kairos-crds 2>/dev/null | grep -q '^STATUS: deployed$'; then
+  print 'Kairos CRDs are already installed'
+else
+  print 'Installing Kairos CRDs...'
+  helm upgrade --install \
+    kairos-crds kairos-crds \
+    --repo https://kairos-io.github.io/helm-charts \
+    --namespace kairos-system \
+    --create-namespace \
+    --wait --wait-for-jobs \
+    --hide-notes
+fi
 
-  docker container run \
-    --rm \
-    --platform="linux/${arch}" \
-    --mount="type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock,readonly" \
-    --mount="type=bind,src=${SCRIPT_DIR},dst=/build" \
-    "quay.io/kairos/auroraboot:${AURORABOOT_VERSION}" \
-    --debug \
-    --set="disable_http_server=true" \
-    --set="disable_netboot=true" \
-    build-iso \
-    --output=/build/outputs/ \
-    --cloud-config=/build/buld-cloud-config.yaml \
-    "oci:final-image:${VERSION}-${arch}"
-done
+print 'Building latest osbuilder image to pull in necessary fixes for auroraboot invocation...'
+osbuilder_tmpdir="$(mktemp -d)"
+trap 'rm -rf "${osbuilder_tmpdir}"' EXIT
+git clone --depth 1 --branch 3779-fix-cloud-image-building --single-branch https://github.com/kairos-io/osbuilder.git "${osbuilder_tmpdir}"
+pushd "${osbuilder_tmpdir}" &>/dev/null
+make docker-build
+kind load docker-image quay.io/kairos/osbuilder:test --name "${KAIROS_KIND_CLUSTER_NAME}"
+popd &>/dev/null
 
+if helm status -n kairos-system kairos-osbuilder 2>/dev/null | grep -q '^STATUS: deployed$'; then
+  print 'Kairos osbuiler is already installed'
+else
+  print 'Installing Kairos osbuilder...'
+  helm upgrade --install \
+    kairos-osbuilder osbuilder \
+    --repo https://kairos-io.github.io/helm-charts \
+    --namespace kairos-system \
+    --create-namespace \
+    --wait --wait-for-jobs \
+    --hide-notes \
+    --set-string=image.tag=test \
+    --set-string=toolsImage.tag=v0.14.0
+fi
 
+if ! kubectl get osartifacts/hello-kairos 2>/dev/null ; then
+	cat <<'EOF' | kubectl apply --server-side -f -
+kind: Secret
+apiVersion: v1
+metadata:
+  name: cloud-config
+stringData:
+  userdata: |
+    #cloud-config
+    users:
+    - name: "kairos"
+      passwd: "kairos"
+    install:
+      device: "auto"
+      reboot: true
+      poweroff: false
+      auto: true # Required, for automated installations
+---
+kind: OSArtifact
+apiVersion: build.kairos.io/v1alpha2
+metadata:
+  name: hello-kairos
+spec:
+  imageName: "quay.io/kairos/ubuntu:24.04-core-amd64-generic-v3.6.0"
+  iso: true
+  cloudConfigRef:
+    name: cloud-config
+    key: userdata
+  exporters:
+    - template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: upload
+            image: quay.io/curl/curl
+            command:
+            - /bin/sh
+            args:
+            - -c
+            - |
+                for f in $(ls /artifacts)
+                do
+                curl -T /artifacts/$f http://osartifactbuilder-operator-osbuilder-nginx.kairos-system.svc/upload/$f
+                done
+            volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+EOF
+fi
+
+kubectl wait --for=jsonpath='{.status.phase}'=Ready osartifacts/hello-kairos
+
+kubectl get --raw \
+	'/api/v1/namespaces/kairos-system/services/osartifactbuilder-operator-osbuilder-nginx/proxy/hello-kairos.iso' | \
+	pv \
+	>hello-kairos.iso
