@@ -21,7 +21,7 @@ readonly KAIROS_KIND_CLUSTER_NAME="${KAIROS_KIND_CLUSTER_NAME:-kairos-demo}"
 readonly KUBECONFIG="${SCRIPT_DIR}/kairos-kind.kubeconfig"
 export KUBECONFIG
 
-if kind get clusters | grep -q '^kairos-demo$'; then
+if kind get clusters 2>/dev/null | grep -q '^kairos-demo$'; then
   print "KIND cluster ${KAIROS_KIND_CLUSTER_NAME} already exists"
 else
   print 'Getting latest available KIND node version'
@@ -84,7 +84,7 @@ else
 fi
 
 if ! kubectl get osartifacts/hello-kairos 2>/dev/null ; then
-	cat <<'EOF' | kubectl apply --server-side -f -
+  cat <<'EOF' | kubectl apply --server-side -f -
 kind: Secret
 apiVersion: v1
 metadata:
@@ -94,7 +94,12 @@ stringData:
     #cloud-config
     users:
     - name: "kairos"
-      passwd: "kairos"
+      groups:
+      - admin
+      ssh_authorized_keys:
+      - github:jimmidyson
+      - github:dkoshkin
+      - github:yannickstruyf3
     install:
       device: "auto"
       reboot: true
@@ -133,9 +138,9 @@ spec:
 EOF
 fi
 
-kubectl wait --for=jsonpath='{.status.phase}'=Ready osartifacts/hello-kairos
+kubectl wait --timeout=10m --for=jsonpath='{.status.phase}'=Ready osartifacts/hello-kairos
 
 kubectl get --raw \
-	'/api/v1/namespaces/kairos-system/services/osartifactbuilder-operator-osbuilder-nginx/proxy/hello-kairos.iso' | \
-	pv \
-	>hello-kairos.iso
+  '/api/v1/namespaces/kairos-system/services/osartifactbuilder-operator-osbuilder-nginx/proxy/hello-kairos.iso' | \
+  pv \
+  >hello-kairos.iso
