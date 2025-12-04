@@ -4,3 +4,6 @@
 /.devbox/
 *.kubeconfig
 
+.envrc.local
+.terraform*
+*.tfstate*

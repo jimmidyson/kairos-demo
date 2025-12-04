@@ -4,6 +4,7 @@
     "crane@latest",
     "kind@latest",
     "kubernetes-helm@latest",
+    "opentofu@latest",
     "pv@latest"
   ]
 }
