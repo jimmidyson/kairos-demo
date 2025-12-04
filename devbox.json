@@ -5,6 +5,7 @@
     "kind@latest",
     "kubernetes-helm@latest",
     "opentofu@latest",
-    "pv@latest"
+    "pv@latest",
+    "envsubst@latest"
   ]
 }

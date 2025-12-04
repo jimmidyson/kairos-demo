@@ -1,13 +1,11 @@
 # syntax=docker/dockerfile:1
 
 ARG BASE_IMAGE_VERSION
-ARG BASE_IMAGE="base-image:${BASE_IMAGE_VERSION}-${TARGETARCH}"
+ARG BASE_IMAGE_REGISTRY
+ARG BASE_IMAGE="${BASE_IMAGE_REGISTRY}/base-image:${BASE_IMAGE_VERSION}"
 
 FROM ${BASE_IMAGE}
-ARG TARGETARCH
 ARG VERSION=0.0.0-dev.0
-
-COPY outputs/${TARGETARCH}/*.sysext.raw /var/lib/kairos/extensions/
 
 RUN --mount=type=secret,id=ubuntu-pro-token pro attach "$(cat /run/secrets/ubuntu-pro-token)"
 RUN pro status

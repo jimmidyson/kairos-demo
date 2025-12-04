@@ -1,4 +1,25 @@
+#cloud-config
+
 name: "sysext with /opt enabled"
+
+hostname: "${VM_HOSTNAME}"
+
+users:
+  - name: "nkpadmin"
+    groups:
+      - admin
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+    - github:jimmidyson
+    - github:dkoshkin
+    - github:yannickstruyf3
+
+install:
+  device: "auto"
+  reboot: true
+  poweroff: false
+  auto: true
 
 stages:
   initramfs.after:

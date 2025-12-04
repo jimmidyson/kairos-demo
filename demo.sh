@@ -16,6 +16,26 @@ function print() {
   printf "${prefix} ${1}\n"
 }
 
+print "Building base image..."
+docker buildx build --progress=plain \
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.base" \
+  --build-arg=VERSION="${VERSION}" \
+  --tag="${OCI_REGISTRY}/base-image:${VERSION}" \
+  "${SCRIPT_DIR}"
+
+print "Building CIS hardened image..."
+docker buildx build --progress=plain \
+    --platform=linux/arm64,linux/amd64 \
+    --output=type=registry \
+    --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.final" \
+    --secret="id=ubuntu-pro-token,env=UBUNTU_PRO_TOKEN" \
+    --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
+    --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
+    --tag="${OCI_REGISTRY}/final-image:${VERSION}" "${SCRIPT_DIR}"
+
 readonly KAIROS_KIND_CLUSTER_NAME="${KAIROS_KIND_CLUSTER_NAME:-kairos-demo}"
 
 readonly KUBECONFIG="${SCRIPT_DIR}/kairos-kind.kubeconfig"
@@ -83,35 +103,19 @@ else
     --set-string=toolsImage.tag=v0.14.0
 fi
 
+if ! kubectl get secret cloud-config 2>/dev/null ; then
+  kubectl create secret --dry-run=client -o yaml generic cloud-config --from-file=userdata=cloud-config.yaml | \
+    kubectl apply -f -
+fi
+
 if ! kubectl get osartifacts/hello-kairos 2>/dev/null ; then
-  cat <<'EOF' | kubectl apply --server-side -f -
-kind: Secret
-apiVersion: v1
-metadata:
-  name: cloud-config
-stringData:
-  userdata: |
-    #cloud-config
-    users:
-    - name: "kairos"
-      groups:
-      - admin
-      ssh_authorized_keys:
-      - github:jimmidyson
-      - github:dkoshkin
-      - github:yannickstruyf3
-    install:
-      device: "auto"
-      reboot: true
-      poweroff: false
-      auto: true # Required, for automated installations
----
+  cat <<EOF | kubectl apply --server-side -f -
 kind: OSArtifact
 apiVersion: build.kairos.io/v1alpha2
 metadata:
   name: hello-kairos
 spec:
-  imageName: "quay.io/kairos/ubuntu:24.04-core-amd64-generic-v3.6.0"
+  imageName: "${OCI_REGISTRY}/final-image:${VERSION}"
   iso: true
   cloudConfigRef:
     name: cloud-config
@@ -122,15 +126,15 @@ spec:
           restartPolicy: Never
           containers:
           - name: upload
-            image: quay.io/curl/curl
+            image: quay.io/curl/curl:8.17.0
             command:
             - /bin/sh
             args:
             - -c
             - |
-                for f in $(ls /artifacts)
+                for f in \$(ls /artifacts)
                 do
-                curl -T /artifacts/$f http://osartifactbuilder-operator-osbuilder-nginx.kairos-system.svc/upload/$f
+                curl -T /artifacts/\$f http://osartifactbuilder-operator-osbuilder-nginx.kairos-system.svc/upload/\$f
                 done
             volumeMounts:
             - name: artifacts
