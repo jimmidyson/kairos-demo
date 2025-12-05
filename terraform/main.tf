@@ -6,8 +6,8 @@ provider "nutanix" {
 }
 
 resource "nutanix_image" "bootstrap_image" {
-  name        = "kairos-automated-installer"
-  source_path = "../hello-kairos.iso"
+  name        = "kairos-bootstrap-iso"
+  source_path = "../bootstrap.iso"
 }
 
 data "nutanix_subnet" "vm_subnet" {
@@ -23,8 +23,8 @@ data "nutanix_cluster" "vm_cluster" {
   name = var.cluster_name
 }
 
-resource "nutanix_virtual_machine" "kairos-automated-installer-test" {
-  name                   = "kairos-automated-installer-test"
+resource "nutanix_virtual_machine" "kairos-bootstrap-iso-test" {
+  name                   = "kairos-bootstrap-iso-test"
   num_vcpus_per_socket   = 4
   num_sockets            = 1
   memory_size_mib        = 8192
@@ -62,5 +62,5 @@ resource "nutanix_virtual_machine" "kairos-automated-installer-test" {
 
 # Show IP address
 output "ip_address" {
-  value = nutanix_virtual_machine.kairos-automated-installer-test.nic_list_status[0].ip_endpoint_list[0].ip
+  value = nutanix_virtual_machine.kairos-bootstrap-iso-test.nic_list_status[0].ip_endpoint_list[0].ip
 }

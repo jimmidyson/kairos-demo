@@ -119,12 +119,12 @@ if ! kubectl get secret cloud-config 2>/dev/null ; then
     kubectl apply -f -
 fi
 
-if ! kubectl get osartifacts/hello-kairos 2>/dev/null ; then
+if ! kubectl get osartifacts/bootstrap-iso 2>/dev/null ; then
   cat <<EOF | kubectl apply --server-side -f -
 kind: OSArtifact
 apiVersion: build.kairos.io/v1alpha2
 metadata:
-  name: hello-kairos
+  name: bootstrap-iso
 spec:
   imageName: "${OCI_REGISTRY}/bootstrap-image:${VERSION}"
   iso: true
@@ -153,9 +153,9 @@ spec:
 EOF
 fi
 
-kubectl wait --timeout=10m --for=jsonpath='{.status.phase}'=Ready osartifacts/hello-kairos
+kubectl wait --timeout=60m --for=jsonpath='{.status.phase}'=Ready osartifacts/bootstrap-iso
 
 kubectl get --raw \
-  '/api/v1/namespaces/kairos-system/services/osartifactbuilder-operator-osbuilder-nginx/proxy/hello-kairos.iso' | \
+  '/api/v1/namespaces/kairos-system/services/osartifactbuilder-operator-osbuilder-nginx/proxy/bootstrap-iso.iso' | \
   pv \
-  >hello-kairos.iso
+  >bootstrap.iso
