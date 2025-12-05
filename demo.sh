@@ -16,25 +16,36 @@ function print() {
   printf "${prefix} ${1}\n"
 }
 
-print "Building base image..."
+print "Building CIS hardened base image..."
 docker buildx build --progress=plain \
   --platform=linux/arm64,linux/amd64 \
   --pull \
   --output=type=registry \
   --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.base" \
   --build-arg=VERSION="${VERSION}" \
+	--secret="id=ubuntu-pro-token,env=UBUNTU_PRO_TOKEN" \
   --tag="${OCI_REGISTRY}/base-image:${VERSION}" \
   "${SCRIPT_DIR}"
 
-print "Building CIS hardened image..."
+print "Building bootstrap image..."
 docker buildx build --progress=plain \
-    --platform=linux/arm64,linux/amd64 \
-    --output=type=registry \
-    --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.final" \
-    --secret="id=ubuntu-pro-token,env=UBUNTU_PRO_TOKEN" \
-    --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
-    --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
-    --tag="${OCI_REGISTRY}/final-image:${VERSION}" "${SCRIPT_DIR}"
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.bootstrap" \
+  --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
+  --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
+  --tag="${OCI_REGISTRY}/bootstrap-image:${VERSION}" "${SCRIPT_DIR}"
+
+print "Building final image..."
+docker buildx build --progress=plain \
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.final" \
+  --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
+  --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
+  --tag="${OCI_REGISTRY}/final-image:${VERSION}" "${SCRIPT_DIR}"
 
 readonly KAIROS_KIND_CLUSTER_NAME="${KAIROS_KIND_CLUSTER_NAME:-kairos-demo}"
 
@@ -115,7 +126,7 @@ apiVersion: build.kairos.io/v1alpha2
 metadata:
   name: hello-kairos
 spec:
-  imageName: "${OCI_REGISTRY}/final-image:${VERSION}"
+  imageName: "${OCI_REGISTRY}/bootstrap-image:${VERSION}"
   iso: true
   cloudConfigRef:
     name: cloud-config
