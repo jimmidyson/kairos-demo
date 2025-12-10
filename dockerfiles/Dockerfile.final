@@ -3,6 +3,39 @@
 ARG BASE_IMAGE_VERSION
 ARG BASE_IMAGE_REGISTRY
 
+FROM "${BASE_IMAGE_REGISTRY}/containerd:${BASE_IMAGE_VERSION}" AS containerd
+FROM "${BASE_IMAGE_REGISTRY}/runc:${BASE_IMAGE_VERSION}" AS runc
+FROM "${BASE_IMAGE_REGISTRY}/cniplugins:${BASE_IMAGE_VERSION}" AS cniplugins
+FROM "${BASE_IMAGE_REGISTRY}/kubernetes:${BASE_IMAGE_VERSION}" AS kubernetes
+
 FROM "${BASE_IMAGE_REGISTRY}/base-image:${BASE_IMAGE_VERSION}"
+
+# Copy containerd binaries to /usr/bin (Kairos preserves this)
+COPY --from=containerd /usr/local/bin /usr/bin
+COPY --from=containerd /usr/lib/systemd/system/containerd.service /usr/lib/systemd/system/containerd.service
+
+# Copy runc binary
+COPY --from=runc /usr/local/bin /usr/bin
+
+# Copy CNI plugins
+COPY --from=cniplugins /opt/cni/bin /opt/cni/bin
+
+# Copy Kubernetes binaries and systemd services
+COPY --from=kubernetes /usr/local/bin /usr/bin
+COPY --from=kubernetes /usr/lib/systemd/system/kubelet.service /usr/lib/systemd/system/kubelet.service
+COPY --from=kubernetes /usr/lib/systemd/system/kubelet.service.d /usr/lib/systemd/system/kubelet.service.d
+
+# Enable containerd and kubelet services to start at boot
+RUN ln -sf /usr/lib/systemd/system/containerd.service /etc/systemd/system/multi-user.target.wants/containerd.service && \
+    ln -sf /usr/lib/systemd/system/kubelet.service /etc/systemd/system/multi-user.target.wants/kubelet.service
+
+
+# Configure kernel modules for Kubernetes networking
+RUN mkdir -p /etc/modules-load.d && \
+    { echo "br_netfilter"; echo "overlay"; } > /etc/modules-load.d/kubernetes.conf
+
+# Configure sysctl settings for Kubernetes networking
+RUN mkdir -p /etc/sysctl.d && \
+    { echo "net.ipv4.ip_forward = 1"; echo "net.bridge.bridge-nf-call-iptables = 1"; echo "net.bridge.bridge-nf-call-ip6tables = 1"; } > /etc/sysctl.d/99-kubernetes.conf
 
 RUN echo 'final' >/etc/kairos-test-version

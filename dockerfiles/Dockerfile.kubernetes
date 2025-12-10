@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+
+FROM ubuntu:24.04 AS getter
+
+RUN apt-get update && apt-get install -y curl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
+ARG K8S_VERSION=v1.34.1
+ARG TARGETARCH
+ARG RELEASE_VERSION=v0.16.2
+
+# Download kubeadm and kubelet binaries
+RUN curl -fsSL --remote-name-all "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/${TARGETARCH}/kubeadm" && \
+    curl -fsSL --remote-name-all "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/${TARGETARCH}/kubelet" && \
+    chmod +x kubeadm kubelet && \
+    mv kubeadm kubelet /usr/local/bin/
+
+# Download and set up kubelet systemd service (upstream already uses /usr/bin)
+RUN mkdir -p /usr/lib/systemd/system/kubelet.service.d && \
+    curl -sSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubelet/kubelet.service" \
+    > /usr/lib/systemd/system/kubelet.service && \
+    curl -sSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubeadm/10-kubeadm.conf" \
+    > /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+
+FROM scratch
+COPY --from=getter /usr/local/bin /usr/local/bin
+COPY --from=getter /usr/lib/systemd/system/kubelet.service /usr/lib/systemd/system/kubelet.service
+COPY --from=getter /usr/lib/systemd/system/kubelet.service.d /usr/lib/systemd/system/kubelet.service.d
+

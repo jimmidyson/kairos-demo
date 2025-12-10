@@ -27,6 +27,38 @@ docker buildx build --progress=plain \
   --tag="${OCI_REGISTRY}/base-image:${VERSION}" \
   "${SCRIPT_DIR}"
 
+print "Building runc image..."
+docker buildx build --progress=plain \
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.runc" \
+  --tag="${OCI_REGISTRY}/runc:${VERSION}" "${SCRIPT_DIR}"
+
+print "Building CNI plugins image..."
+docker buildx build --progress=plain \
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.cniplugins" \
+  --tag="${OCI_REGISTRY}/cniplugins:${VERSION}" "${SCRIPT_DIR}"
+
+print "Building containerd image..."
+docker buildx build --progress=plain \
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.containerd" \
+  --tag="${OCI_REGISTRY}/containerd:${VERSION}" "${SCRIPT_DIR}"
+
+print "Building Kubernetes image..."
+docker buildx build --progress=plain \
+  --platform=linux/arm64,linux/amd64 \
+  --pull \
+  --output=type=registry \
+  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.kubernetes" \
+  --tag="${OCI_REGISTRY}/kubernetes:${VERSION}" "${SCRIPT_DIR}"
+
 print "Building bootstrap image..."
 docker buildx build --progress=plain \
   --platform=linux/arm64,linux/amd64 \
