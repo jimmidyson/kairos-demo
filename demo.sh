@@ -114,10 +114,8 @@ else
     --set-string=toolsImage.tag=v0.14.0
 fi
 
-if ! kubectl get secret cloud-config 2>/dev/null ; then
-  kubectl create secret --dry-run=client -o yaml generic cloud-config --from-file=userdata=cloud-config.yaml | \
-    kubectl apply -f -
-fi
+kubectl create secret --dry-run=client -o yaml generic cloud-config --from-file=userdata=cloud-config.yaml | \
+  kubectl apply -f -
 
 if ! kubectl get osartifacts/bootstrap-iso 2>/dev/null ; then
   cat <<EOF | kubectl apply --server-side -f -
