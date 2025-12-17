@@ -1,7 +1,4 @@
 provider "nutanix" {
-  username     = var.user
-  password     = var.password
-  endpoint     = var.endpoint
   wait_timeout = 60
 }
 
