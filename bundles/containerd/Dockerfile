@@ -15,4 +15,5 @@ RUN chmod +x runc
 
 FROM scratch
 COPY run.sh /
-COPY --from=containerd-binaries /opt/containerd/bin /opt/containerd/bin/
+COPY --from=containerd-binaries /opt/containerd/bin/bin /opt/containerd/bin/
+COPY --from=containerd-binaries /opt/containerd/bin/runc /opt/containerd/bin/runc

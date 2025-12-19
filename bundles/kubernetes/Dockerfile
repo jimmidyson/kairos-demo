@@ -12,9 +12,9 @@ WORKDIR /opt/kubernetes/bin
 RUN curl -L "https://github.com/kubernetes-sigs/cri-tools/releases/download/v${CRICTL_VERSION}/crictl-v${CRICTL_VERSION}-linux-amd64.tar.gz" | tar -xz
 
 # Download kubeadm, kubelet, kubectl
-RUN curl -L -o kubeadm "https://dl.k8s.io/${KUBERNETES_VERSION}/bin/linux/amd64/kubeadm"
-RUN curl -L -o kubelet "https://dl.k8s.io/${KUBERNETES_VERSION}/bin/linux/amd64/kubelet"
-RUN curl -L -o kubectl "https://dl.k8s.io/${KUBERNETES_VERSION}/bin/linux/amd64/kubectl"
+RUN curl -L -o kubeadm "https://dl.k8s.io/v${KUBERNETES_VERSION}/bin/linux/amd64/kubeadm"
+RUN curl -L -o kubelet "https://dl.k8s.io/v${KUBERNETES_VERSION}/bin/linux/amd64/kubelet"
+RUN curl -L -o kubectl "https://dl.k8s.io/v${KUBERNETES_VERSION}/bin/linux/amd64/kubectl"
 
 RUN chmod +x kubeadm kubelet kubectl crictl
 
