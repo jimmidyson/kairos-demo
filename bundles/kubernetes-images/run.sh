@@ -1,5 +1,5 @@
 #!/bin/bash
 
-mkdir -p /usr/local/.state/var-lib-nkp.bind/k8s/images/
+mkdir -p /usr/local/.state/opt.bind/nkp/images
 
-cp -rfv /opt/container-images/*.tar /usr/local/.state/var-lib-nkp.bind/k8s/images/
+cp -rfv ./opt/container-images/ /usr/local/.state/opt.bind/nkp/images/
