@@ -23,7 +23,16 @@ install:
   auto: true
   bundles:
   - targets:
-    - run://run/initramfs/live/kubernetes-images-${KUBERNETES_IMAGES_VERSION}.tar
+    - run://run/initramfs/live/kubernetes-images-v${KUBERNETES_VERSION}.tar
+    local_file: true
+  - targets:
+    - run://run/initramfs/live/kubernetes-binaries-v${KUBERNETES_VERSION}.tar
+    local_file: true
+  - targets:
+    - run://run/initramfs/live/cni-plugins-v${CNI_PLUGINS_VERSION}.tar
+    local_file: true
+  - targets:
+    - run://run/initramfs/live/containerd-binaries-v${CONTAINERD_VERSION}.tar
     local_file: true
 
 fail_on_bundles_errors: true

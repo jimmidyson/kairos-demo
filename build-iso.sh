@@ -18,8 +18,17 @@ function print() {
 }
 
 export CONTAINERD_VERSION="2.1.4"
-export KUBERNETES_IMAGES_VERSION="v1.34.1"
+export KUBERNETES_VERSION="1.34.1"
+export RUNC_VERSION="1.3.2"
+export CRICTL_VERSION="1.34.0"
+export CNI_PLUGINS_VERSION="1.8.0"
+
 ISO_NAME="bootstrap"
+
+rm -rf "$SCRIPT_DIR"/build
+mkdir -p "$SCRIPT_DIR"/build
+mkdir -p "$SCRIPT_DIR"/build/bundles
+
 
 print "Building CIS hardened base image..."
 docker buildx build --progress=plain \
@@ -48,13 +57,40 @@ docker buildx build --progress=plain \
   --pull \
   --output=type=docker \
   --file="${SCRIPT_DIR}/bundles/kubernetes-images/Dockerfile" \
-  --tag="nkp/kubernetes-images:${KUBERNETES_IMAGES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes-images"
+  --tag="nkp/kubernetes-images:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes-images"
+docker save "nkp/kubernetes-images:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-images-v${KUBERNETES_VERSION}.tar
 
-rm -rf "$SCRIPT_DIR"/build
-mkdir -p "$SCRIPT_DIR"/build
+print "Building kubernetes binaries bundle..."
+docker buildx build --progress=plain \
+  --platform="${PLATFORM}" \
+  --pull \
+  --output=type=docker \
+  --file="${SCRIPT_DIR}/bundles/kubernetes/Dockerfile" \
+  --build-arg="CRICTL_VERSION=${CRICTL_VERSION}" \
+  --build-arg="KUBERNETES_VERSION=${KUBERNETES_VERSION}" \
+  --tag="nkp/kubernetes-binaries:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes"
+docker save "nkp/kubernetes-binaries:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-binaries-v${KUBERNETES_VERSION}.tar
 
-mkdir -p "$SCRIPT_DIR"/build/bundles
-docker save "nkp/kubernetes-images:${KUBERNETES_IMAGES_VERSION}" -o build/bundles/kubernetes-images-${KUBERNETES_IMAGES_VERSION}.tar
+print "Building containerd binaries bundle..."
+docker buildx build --progress=plain \
+  --platform="${PLATFORM}" \
+  --pull \
+  --output=type=docker \
+  --file="${SCRIPT_DIR}/bundles/containerd/Dockerfile" \
+  --build-arg="CONTAINERD_VERSION=${CONTAINERD_VERSION}" \
+  --build-arg="RUNC_VERSION=${RUNC_VERSION}" \
+  --tag="nkp/containerd-binaries:v${CONTAINERD_VERSION}" "${SCRIPT_DIR}/bundles/containerd"
+docker save "nkp/containerd-binaries:v${CONTAINERD_VERSION}" -o build/bundles/containerd-binaries-v${CONTAINERD_VERSION}.tar
+
+print "Building cni plugins bundle..."
+docker buildx build --progress=plain \
+  --platform="${PLATFORM}" \
+  --pull \
+  --output=type=docker \
+  --file="${SCRIPT_DIR}/bundles/cni-plugins/Dockerfile" \
+  --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
+  --tag="nkp/cni-plugins:v${CNI_PLUGINS_VERSION}" "${SCRIPT_DIR}/bundles/cni-plugins"
+docker save "nkp/cni-plugins:v${CNI_PLUGINS_VERSION}" -o build/bundles/cni-plugins-v${CNI_PLUGINS_VERSION}.tar
 
 cat "$SCRIPT_DIR"/cloud-config.yaml | envsubst > "$SCRIPT_DIR/build/cloud-config.yaml"
 
@@ -64,7 +100,6 @@ docker run --platform "$PLATFORM" --rm -ti \
   -v "$SCRIPT_DIR/build/bundles":/tmp/bundles \
   quay.io/kairos/auroraboot \
   --set "container_image=${OCI_REGISTRY}/final-image:${VERSION}" \
-  --set "kubernetes_images_version=${KUBERNETES_IMAGES_VERSION}" \
   --set "disable_http_server=true" \
   --set "disable_netboot=true" \
   --set "iso.data=/tmp/bundles" \
