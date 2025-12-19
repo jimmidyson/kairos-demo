@@ -10,7 +10,7 @@ resource "random_string" "image_name" {
 
 resource "nutanix_image" "bootstrap_image" {
   name        = var.image_name == "" ? "kairos-bootstrap-iso-${random_string.image_name.result}" : var.image_name
-  source_path = "../bootstrap.iso"
+  source_path = "${var.iso_file}"
 }
 
 data "nutanix_subnet" "vm_subnet" {

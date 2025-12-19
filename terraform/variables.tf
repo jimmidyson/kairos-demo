@@ -12,3 +12,8 @@ variable "image_name" {
   type = string
   default = ""
 }
+
+variable "iso_file" {
+  type = string
+  description = "The name of the ISO file to upload"
+}

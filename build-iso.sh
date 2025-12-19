@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -euxo pipefail
 IFS=$'\n\t'
 
 # Discover script directory
@@ -18,6 +18,8 @@ function print() {
 }
 
 export CONTAINERD_VERSION="2.1.4"
+export KUBERNETES_IMAGES_VERSION="v1.34.1"
+ISO_NAME="bootstrap"
 
 print "Building CIS hardened base image..."
 docker buildx build --progress=plain \
@@ -30,16 +32,6 @@ docker buildx build --progress=plain \
   --tag="${OCI_REGISTRY}/base-image:${VERSION}" \
   "${SCRIPT_DIR}"
 
-print "Building bootstrap image..."
-docker buildx build --progress=plain \
-  --platform="${PLATFORM}" \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.bootstrap" \
-  --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
-  --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
-  --tag="${OCI_REGISTRY}/bootstrap-image:${VERSION}" "${SCRIPT_DIR}"
-
 print "Building final image..."
 docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
@@ -50,46 +42,32 @@ docker buildx build --progress=plain \
   --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
   --tag="${OCI_REGISTRY}/final-image:${VERSION}" "${SCRIPT_DIR}"
 
-
-# print "Building containerd image bundle..."
-# docker buildx build --progress=plain \
-#   --platform="${PLATFORM}" \
-#   --pull \
-#   --output=type=registry \
-#   --build-arg="CONTAINERD_VERSION=${CONTAINERD_VERSION}" \
-#   --file="${SCRIPT_DIR}/bundles/containerd/Dockerfile" \
-#   --tag="${OCI_REGISTRY}/containerd-image:${CONTAINERD_VERSION}" "${SCRIPT_DIR}/bundles/containerd"
-
 print "Building airgap bundle..."
 docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
   --output=type=docker \
   --file="${SCRIPT_DIR}/bundles/kubernetes-images/Dockerfile" \
-  --tag="nkp/kubernetes-images:v1.34.1" "${SCRIPT_DIR}/bundles/kubernetes-images"
-
-if [ ! -d data ]; then
- mkdir data
-fi
-
-pushd data
-    docker save "nkp/kubernetes-images:v1.34.1" -o kubernetes-images-v1.34.1.tar
-popd
+  --tag="nkp/kubernetes-images:${KUBERNETES_IMAGES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes-images"
 
 rm -rf "$SCRIPT_DIR"/build
 mkdir -p "$SCRIPT_DIR"/build
+
+mkdir -p "$SCRIPT_DIR"/build/bundles
+docker save "nkp/kubernetes-images:${KUBERNETES_IMAGES_VERSION}" -o build/bundles/kubernetes-images-${KUBERNETES_IMAGES_VERSION}.tar
+
 cat "$SCRIPT_DIR"/cloud-config.yaml | envsubst > "$SCRIPT_DIR/build/cloud-config.yaml"
+
 docker run --platform "$PLATFORM" --rm -ti \
   -v "$SCRIPT_DIR/build/cloud-config.yaml:/config.yaml" \
   -v "$SCRIPT_DIR/build":/tmp/auroraboot \
-  -v $PWD/data:/tmp/data \
+  -v "$SCRIPT_DIR/build/bundles":/tmp/bundles \
   quay.io/kairos/auroraboot \
   --set "container_image=${OCI_REGISTRY}/final-image:${VERSION}" \
+  --set "kubernetes_images_version=${KUBERNETES_IMAGES_VERSION}" \
   --set "disable_http_server=true" \
   --set "disable_netboot=true" \
-  --set "iso.data=/tmp/data" \
+  --set "iso.data=/tmp/bundles" \
+  --set "iso.override_name=${ISO_NAME}" \
   --set "state_dir=/tmp/auroraboot" \
   --cloud-config /config.yaml
-
-# Copy or override the bootstrap.iso file
-cp "$SCRIPT_DIR/build/auroraboot/kairos-*.iso" "$SCRIPT_DIR/bootstrap.iso"
