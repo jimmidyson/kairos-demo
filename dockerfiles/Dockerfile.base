@@ -8,12 +8,9 @@ FROM ${BASE_IMAGE} AS base-kairos
 ARG VERSION
 RUN --mount=type=bind,from=kairos-init,src=/kairos-init,dst=/kairos-init /kairos-init --level debug --version "${VERSION}"
 
-RUN --mount=type=secret,id=ubuntu-pro-token \
-    if [ -f /run/secrets/ubuntu-pro-token ]; then \
-        pro attach "$(cat /run/secrets/ubuntu-pro-token)" && \
-        pro status && \
-        pro enable usg && \
-        apt install -y usg && \
-        usg fix cis_level1_server; \
-    fi
+# RUN --mount=type=secret,id=ubuntu-pro-token pro attach "$(cat /run/secrets/ubuntu-pro-token)"
+# RUN pro status
+# RUN pro enable usg
+# RUN apt install usg
+# RUN usg fix cis_level1_server
 RUN apt install -y rsync
