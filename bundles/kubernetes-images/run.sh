@@ -1,5 +1,5 @@
 #!/bin/bash
 
-mkdir -p /usr/local/.state/opt.bind/nkp/images
+mkdir -p /usr/local/.state/var-lib-containerd.bind/
 
-cp -rfv ./opt/container-images/ /usr/local/.state/opt.bind/nkp/images/
+cp -rfv ./var/lib/containerd/ /usr/local/.state/var-lib-containerd.bind/
