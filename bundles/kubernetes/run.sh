@@ -1,5 +1,5 @@
 #!/bin/bash
 
-mkdir -p /usr/local/.state/opt.bind/nkp/kubernetes/bin
+mkdir -p /usr/local/.state/var-lib-extensions.bind
+cp -rfv ./kubernetes.sysext /usr/local/.state/var-lib-extensions.bind/kubernetes.sysext
 
-cp -rfv ./opt/kubernetes/bin/ /usr/local/.state/opt.bind/nkp/kubernetes

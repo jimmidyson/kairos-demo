@@ -60,37 +60,19 @@ docker buildx build --progress=plain \
   --tag="nkp/kubernetes-images:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes-images"
 docker save "nkp/kubernetes-images:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-images-v${KUBERNETES_VERSION}.tar
 
-print "Building kubernetes binaries bundle..."
+print "Building combined k8s systemd extension bundle..."
 docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
   --output=type=docker \
   --file="${SCRIPT_DIR}/bundles/kubernetes/Dockerfile" \
-  --build-arg="CRICTL_VERSION=${CRICTL_VERSION}" \
-  --build-arg="KUBERNETES_VERSION=${KUBERNETES_VERSION}" \
-  --tag="nkp/kubernetes-binaries:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes"
-docker save "nkp/kubernetes-binaries:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-binaries-v${KUBERNETES_VERSION}.tar
-
-print "Building containerd binaries bundle..."
-docker buildx build --progress=plain \
-  --platform="${PLATFORM}" \
-  --pull \
-  --output=type=docker \
-  --file="${SCRIPT_DIR}/bundles/containerd/Dockerfile" \
+  --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
   --build-arg="CONTAINERD_VERSION=${CONTAINERD_VERSION}" \
   --build-arg="RUNC_VERSION=${RUNC_VERSION}" \
-  --tag="nkp/containerd-binaries:v${CONTAINERD_VERSION}" "${SCRIPT_DIR}/bundles/containerd"
-docker save "nkp/containerd-binaries:v${CONTAINERD_VERSION}" -o build/bundles/containerd-binaries-v${CONTAINERD_VERSION}.tar
-
-print "Building cni plugins bundle..."
-docker buildx build --progress=plain \
-  --platform="${PLATFORM}" \
-  --pull \
-  --output=type=docker \
-  --file="${SCRIPT_DIR}/bundles/cni-plugins/Dockerfile" \
-  --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
-  --tag="nkp/cni-plugins:v${CNI_PLUGINS_VERSION}" "${SCRIPT_DIR}/bundles/cni-plugins"
-docker save "nkp/cni-plugins:v${CNI_PLUGINS_VERSION}" -o build/bundles/cni-plugins-v${CNI_PLUGINS_VERSION}.tar
+  --build-arg="KUBERNETES_VERSION=${KUBERNETES_VERSION}" \
+  --build-arg="CRICTL_VERSION=${CRICTL_VERSION}" \
+  --tag="nkp/kubernetes:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes"
+docker save "nkp/kubernetes:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-v${KUBERNETES_VERSION}.tar
 
 cat "$SCRIPT_DIR"/cloud-config.yaml | envsubst > "$SCRIPT_DIR/build/cloud-config.yaml"
 
