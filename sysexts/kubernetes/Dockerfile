@@ -48,15 +48,14 @@ COPY --from=k8s-binaries /opt/kubernetes/bin/ /extension/usr/bin/
 # Copy systemd service files
 COPY containerd.service /extension/usr/lib/systemd/system/containerd.service
 COPY kubelet.service /extension/usr/lib/systemd/system/kubelet.service
+COPY 10-kubeadm.conf /extension/etc/systemd/system/kubelet.service.d/10-kubeadm.conf
 
 # Create systemd extension metadata
 RUN mkdir -p /extension/usr/lib/extension-release.d && \
     echo "ID=ubuntu" > /extension/usr/lib/extension-release.d/extension-release.kubernetes && \
     echo "VERSION_ID=\"24.04\"" >> /extension/usr/lib/extension-release.d/extension-release.kubernetes
 
-RUN mksquashfs /extension /kubernetes.sysext -comp xz
+RUN mksquashfs /extension /kubernetes.sysext.raw -comp xz
 
 FROM scratch
-COPY run.sh /
-COPY --from=extension-builder /kubernetes.sysext /kubernetes.sysext
-
+COPY --from=extension-builder /kubernetes.sysext.raw /kubernetes.sysext.raw
