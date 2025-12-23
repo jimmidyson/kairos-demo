@@ -6,14 +6,14 @@ FROM quay.io/kairos/kairos-init:v0.6.2 AS kairos-init
 
 FROM ${BASE_IMAGE} AS base-kairos
 ARG VERSION
-RUN --mount=type=bind,from=kairos-init,src=/kairos-init,dst=/kairos-init
+RUN --mount=type=bind,from=kairos-init,src=/kairos-init,dst=/kairos-init 
 
 # RUN --mount=type=secret,id=ubuntu-pro-token pro attach "$(cat /run/secrets/ubuntu-pro-token)"
 # RUN pro status
 # RUN pro enable usg
 # RUN apt install usg
 # RUN usg fix cis_level1_server
-RUN apt install -y rsync
+RUN apt update && apt install -y rsync
 
 RUN echo "overlay" >> /etc/modules-load.d/k8s.conf && \
     echo "br_netfilter" >> /etc/modules-load.d/k8s.conf
