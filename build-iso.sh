@@ -65,13 +65,13 @@ docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
   --output=type=local,dest=build/bundles \
-  --file="${SCRIPT_DIR}/sysexts/kubernetes/Dockerfile" \
+  --file="${SCRIPT_DIR}/bundles/kubernetes/Dockerfile" \
   --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
   --build-arg="CONTAINERD_VERSION=${CONTAINERD_VERSION}" \
   --build-arg="RUNC_VERSION=${RUNC_VERSION}" \
   --build-arg="KUBERNETES_VERSION=${KUBERNETES_VERSION}" \
   --build-arg="CRICTL_VERSION=${CRICTL_VERSION}" \
-  --tag="nkp/kubernetes:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/sysexts/kubernetes"
+  --tag="nkp/kubernetes:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes"
 
 print "Building cloud config..."
 cat "$SCRIPT_DIR"/cloud-config.yaml | envsubst > "$SCRIPT_DIR/build/cloud-config.yaml"

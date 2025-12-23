@@ -24,9 +24,11 @@ install:
   bundles:
   - targets:
     - run://run/initramfs/live/kubernetes-images-v${KUBERNETES_VERSION}.tar
+    - run://run/initramfs/live/kubernetes-v${KUBERNETES_VERSION}.sysext
     local_file: true
 
 fail_on_bundles_errors: true
+debug: true
 
 # enable /opt in systemd extensions
 stages:

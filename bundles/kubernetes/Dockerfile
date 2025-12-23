@@ -55,7 +55,8 @@ RUN mkdir -p /extension/usr/lib/extension-release.d && \
     echo "ID=ubuntu" > /extension/usr/lib/extension-release.d/extension-release.kubernetes && \
     echo "VERSION_ID=\"24.04\"" >> /extension/usr/lib/extension-release.d/extension-release.kubernetes
 
-RUN mksquashfs /extension /kubernetes.sysext.raw -comp xz
+RUN mksquashfs /extension /kubernetes.sysext -comp xz
 
 FROM scratch
-COPY --from=extension-builder /kubernetes.sysext.raw /kubernetes.sysext.raw
+COPY --from=extension-builder /kubernetes.sysext /kubernetes.sysext
+COPY run.sh /
