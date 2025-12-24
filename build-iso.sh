@@ -34,7 +34,7 @@ print "Building CIS hardened base image..."
 docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
-  --output=type=registry \
+  --output=type=docker \
   --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.base" \
   --build-arg=VERSION="${VERSION}" \
 	--secret="id=ubuntu-pro-token,env=UBUNTU_PRO_TOKEN" \
@@ -45,7 +45,7 @@ print "Building final image..."
 docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
-  --output=type=registry \
+  --output=type=docker \
   --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.final" \
   --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
   --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
@@ -64,7 +64,7 @@ print "Building kubernetes systemd extension..."
 docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
-  --output=type=local,dest=build/bundles \
+  --output=type=docker \
   --file="${SCRIPT_DIR}/bundles/kubernetes/Dockerfile" \
   --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
   --build-arg="CONTAINERD_VERSION=${CONTAINERD_VERSION}" \
@@ -72,6 +72,7 @@ docker buildx build --progress=plain \
   --build-arg="KUBERNETES_VERSION=${KUBERNETES_VERSION}" \
   --build-arg="CRICTL_VERSION=${CRICTL_VERSION}" \
   --tag="nkp/kubernetes:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes"
+docker save "nkp/kubernetes:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-v${KUBERNETES_VERSION}.tar
 
 print "Building cloud config..."
 cat "$SCRIPT_DIR"/cloud-config.yaml | envsubst > "$SCRIPT_DIR/build/cloud-config.yaml"
@@ -80,6 +81,7 @@ docker run --platform "$PLATFORM" --rm -ti \
   -v "$SCRIPT_DIR/build/cloud-config.yaml:/config.yaml" \
   -v "$SCRIPT_DIR/build":/tmp/auroraboot \
   -v "$SCRIPT_DIR/build/bundles":/tmp/bundles \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   quay.io/kairos/auroraboot \
   --set "container_image=${OCI_REGISTRY}/final-image:${VERSION}" \
   --set "disable_http_server=true" \
