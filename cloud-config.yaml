@@ -24,7 +24,7 @@ install:
   bundles:
   - targets:
     - run://run/initramfs/live/kubernetes-images-v${KUBERNETES_VERSION}.tar
-    - run://run/initramfs/live/kubernetes-v${KUBERNETES_VERSION}.sysext
+    - run://run/initramfs/live/kubernetes-v${KUBERNETES_VERSION}.tar
     local_file: true
 
 fail_on_bundles_errors: true
