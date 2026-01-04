@@ -56,6 +56,7 @@ docker buildx build --progress=plain \
   --platform="${PLATFORM}" \
   --pull \
   --output=type=docker \
+  --build-arg="KUBERNETES_VERSION=${KUBERNETES_VERSION}" \
   --file="${SCRIPT_DIR}/bundles/kubernetes-images/Dockerfile" \
   --tag="nkp/kubernetes-images:v${KUBERNETES_VERSION}" "${SCRIPT_DIR}/bundles/kubernetes-images"
 docker save "nkp/kubernetes-images:v${KUBERNETES_VERSION}" -o build/bundles/kubernetes-images-v${KUBERNETES_VERSION}.tar

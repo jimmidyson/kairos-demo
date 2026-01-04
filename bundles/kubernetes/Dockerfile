@@ -49,7 +49,8 @@ COPY --from=k8s-binaries /opt/kubernetes/bin/ /extension/usr/bin/
 # Copy systemd service files
 COPY containerd.service /extension/usr/lib/systemd/system/containerd.service
 COPY kubelet.service /extension/usr/lib/systemd/system/kubelet.service
-COPY 10-kubeadm.conf /extension/etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+COPY 10-kubeadm.conf /extension/usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+COPY 10-kubelet-service.conf /extension/usr/lib/systemd/system/multi-user-target.d/10-kubelet-service.conf
 
 # Create systemd extension metadata
 RUN mkdir -p /extension/usr/lib/extension-release.d && \

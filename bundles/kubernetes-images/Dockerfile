@@ -5,6 +5,7 @@ FROM ubuntu:24.04 AS ubuntu
 
 ARG CONTAINERD_VERSION=2.1.4
 ARG RUNC_VERSION=1.3.2
+ARG KUBERNETES_VERSION=1.34.1
 
 RUN apt-get update && apt-get install -y curl
 
@@ -26,7 +27,7 @@ RUN containerd \
     --state /run/containerd \
     & \
     sleep 5 && \
-    mindthegap import image-bundle --image-bundle /opt/container-images/*.tar && \
+    mindthegap import image-bundle --image-bundle /opt/container-images/kubernetes-images-${KUBERNETES_VERSION}-d2iq.1.tar && \
     pkill containerd
 
 FROM scratch
