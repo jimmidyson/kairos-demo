@@ -83,13 +83,13 @@ If you have access to a Nutanix cluster, you can deploy the ISO using Terraform:
 
 ```bash
 cd terraform
+export NUTANIX_ENDPOINT="prism-central.example.com:9440"
+export NUTANIX_USERNAME="your-username"
+export NUTANIX_PASSWORD="your-password"
 tofu init
 tofu apply \
   -var="cluster_name=your-cluster" \
-  -var="subnet_name=your-subnet" \
-  -var="endpoint=prism-central.example.com:9440" \
-  -var="user=your-username" \
-  -var="password=your-password"
+  -var="subnet_name=your-subnet"
 ```
 
 This will:

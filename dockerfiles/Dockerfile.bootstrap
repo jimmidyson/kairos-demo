@@ -1,8 +1,0 @@
-# syntax=docker/dockerfile:1
-
-ARG BASE_IMAGE_VERSION
-ARG BASE_IMAGE_REGISTRY
-
-FROM "${BASE_IMAGE_REGISTRY}/base-image:${BASE_IMAGE_VERSION}"
-
-RUN echo 'bootstrap' >/etc/kairos-test-version

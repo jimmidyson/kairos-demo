@@ -14,13 +14,23 @@ users:
     - github:jimmidyson
     - github:dkoshkin
     - github:yannickstruyf3
+    - github:supershal
 
 install:
   device: "auto"
   reboot: true
   poweroff: false
   auto: true
+  bundles:
+  - targets:
+    - run://run/initramfs/live/kubernetes-images-v${KUBERNETES_VERSION}.tar
+    - run://run/initramfs/live/kubernetes-v${KUBERNETES_VERSION}.tar
+    local_file: true
 
+fail_on_bundles_errors: true
+debug: true
+
+# enable /opt in systemd extensions
 stages:
   initramfs.after:
     - name: "systemd-sysext uki config"

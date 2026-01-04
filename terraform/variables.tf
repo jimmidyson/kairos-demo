@@ -4,15 +4,6 @@ variable "cluster_name" {
 variable "subnet_name" {
   type = string
 }
-variable "password" {
-  type      = string
-}
-variable "endpoint" {
-  type = string
-}
-variable "user" {
-  type = string
-}
 variable "vm_name" {
   type = string
   default = ""
@@ -20,4 +11,9 @@ variable "vm_name" {
 variable "image_name" {
   type = string
   default = ""
+}
+
+variable "iso_file" {
+  type = string
+  description = "The name of the ISO file to upload"
 }

@@ -5,4 +5,5 @@ ARG BASE_IMAGE_REGISTRY
 
 FROM "${BASE_IMAGE_REGISTRY}/base-image:${BASE_IMAGE_VERSION}"
 
+
 RUN echo 'final' >/etc/kairos-test-version
