@@ -37,8 +37,9 @@ RUN curl -L -o kubectl "https://dl.k8s.io/v${KUBERNETES_VERSION}/bin/linux/amd64
 RUN chmod +x kubeadm kubelet kubectl crictl
 
 # Final stage: combine everything into systemd extension structure
-FROM alpine:latest AS extension-builder
-RUN apk add --no-cache squashfs-tools
+FROM ubuntu:24.04 AS extension-builder
+
+RUN apt-get update && apt-get install -y  squashfs-tools systemd-repart openssl bash erofs-utils
 
 # Copy all binaries
 COPY --from=cni-plugins /opt/cni/bin/ /extension/opt/cni/bin/
@@ -55,7 +56,17 @@ RUN mkdir -p /extension/usr/lib/extension-release.d && \
     echo "ID=ubuntu" > /extension/usr/lib/extension-release.d/extension-release.kubernetes && \
     echo "VERSION_ID=24.04" >> /extension/usr/lib/extension-release.d/extension-release.kubernetes
 
-RUN mksquashfs /extension /kubernetes.sysext.raw -comp xz
+#RUN mksquashfs /extension /kubernetes.sysext.raw -comp xz
+RUN mkdir -p /keys && \
+    openssl genpkey -algorithm RSA -out /keys/sysext.key -pkeyopt rsa_keygen_bits:2048 && \
+    openssl req -new -x509 -key /keys/sysext.key -out /keys/sysext.crt -days 3650 -subj "/CN=kubernetes-sysext/"
+
+RUN systemd-repart -S \
+    --image-policy="root=verity:usr=verity" \
+    --private-key=/keys/sysext.key \
+    --certificate=/keys/sysext.crt \
+    --copy-source=/extension \
+    /kubernetes.sysext.raw
 
 FROM scratch
 COPY --from=extension-builder /kubernetes.sysext.raw /kubernetes.sysext.raw
