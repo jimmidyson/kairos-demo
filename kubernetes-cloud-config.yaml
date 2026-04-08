@@ -1,0 +1,34 @@
+#cloud-config
+
+# Set hostname
+hostname: kairos-kubernetes-node
+
+# Write files
+write_files:
+  # Add hostname to /etc/hosts
+  - path: /etc/hosts
+    append: true
+    content: |
+      127.0.0.1 kairos-kubernetes-node
+
+  # Custom application config file
+  - path: /etc/kubernetes/nkp-config.yaml
+    permissions: '0644'
+    content: |
+      version: v1.19.0
+
+# Run commands (standard cloud-init)
+runcmd:
+  - |
+    #!/bin/bash
+    set -e
+    
+    # Exit early if already initialized
+    # TODO: Check for a file based on the image version
+    if [ -f /etc/kubernetes/admin.conf ]; then
+      echo "Cluster already initialized, skipping setup"
+      exit 0
+    fi
+    
+    echo "ran at $(date)" >> /var/log/kairos-upgrade-test.log
+    kubeadm init

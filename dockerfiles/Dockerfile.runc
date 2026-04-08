@@ -9,7 +9,7 @@ ARG TARGETARCH
 RUN curl -fsSLO "https://github.com/opencontainers/runc/releases/download/v${RUNC_VERSION}/runc.${TARGETARCH}"
 RUN curl -fsSLO https://github.com/opencontainers/runc/releases/download/v${RUNC_VERSION}/runc.sha256sum
 RUN sha256sum --check --ignore-missing runc.sha256sum
-RUN mv "runc.${TARGETARCH}" /usr/local/bin/runc
+RUN mv "runc.${TARGETARCH}" /usr/local/bin/runc && chmod +x /usr/local/bin/runc
 
 FROM scratch
 COPY --from=getter /usr/local/bin /usr/local/bin

@@ -54,7 +54,17 @@ Set the following environment variables before running the demo:
 ```bash
 export VERSION="v1.0.0"                    # Version tag for images
 export OCI_REGISTRY="your-registry.com"    # Your container registry
-export UBUNTU_PRO_TOKEN="your-token"       # Ubuntu Pro token for CIS hardening
+export UBUNTU_PRO_TOKEN="your-token"       # Ubuntu Pro token for CIS hardening  
+```
+
+Set the following environment variables if running the demo in Nutanix (Optional):
+
+```bash
+export NUTANIX_ENDPOINT="you.pc.dev"   # PC where to upload the image and create the VM in
+export NUTANIX_USER="your-username"    # PC username
+export NUTANIX_PASSWORD="you-password" # PC password
+export NUTANIX_PRISM_ELEMENT_CLUSTER_NAME="your-pe" # The VM will be created here
+export NUTANIX_SUBNET_NAME="you-subnet"             # The VM will use this Subnet
 ```
 
 ## Quick Start
@@ -85,11 +95,11 @@ If you have access to a Nutanix cluster, you can deploy the ISO using Terraform:
 cd terraform
 tofu init
 tofu apply \
-  -var="cluster_name=your-cluster" \
-  -var="subnet_name=your-subnet" \
-  -var="endpoint=prism-central.example.com:9440" \
-  -var="user=your-username" \
-  -var="password=your-password"
+  -var="cluster_name=${NUTANIX_PRISM_ELEMENT_CLUSTER_NAME}" \
+  -var="subnet_name=${NUTANIX_SUBNET_NAME}" \
+  -var="endpoint=${NUTANIX_ENDPOINT}" \
+  -var="user=${NUTANIX_USER}" \
+  -var="password=${NUTANIX_PASSWORD}"
 ```
 
 This will:
@@ -99,6 +109,37 @@ This will:
 3. Attach the ISO as a CDROM
 4. Create a 100GB disk for installation
 5. Output the VM's IP address
+
+To later cleanup using Terraform:
+
+```bash
+cd terraform
+tofu destroy \
+  -var="cluster_name=${NUTANIX_PRISM_ELEMENT_CLUSTER_NAME}" \
+  -var="subnet_name=${NUTANIX_SUBNET_NAME}" \
+  -var="endpoint=${NUTANIX_ENDPOINT}" \
+  -var="user=${NUTANIX_USER}" \
+  -var="password=${NUTANIX_PASSWORD}"
+```
+
+### 3. Bootstrap a Kubernetes Node
+
+Create a single Node Kubernetes Cluster by running, by copying a simple cloud-config file, upgrading into the Kubernetes OS and rebooting:
+
+```bash
+export VM_IP_ADDRESS=$(tofu output -raw -state=terraform/terraform.tfstate ip_address)
+scp kubernetes-cloud-config.yaml nkpadmin@$VM_IP_ADDRESS:/oem/95_kubernetes-node.yaml
+ssh nkpadmin@$VM_IP_ADDRESS "sudo kairos-agent upgrade --source oci:$OCI_REGISTRY/final-image:$VERSION"
+ssh nkpadmin@$VM_IP_ADDRESS "sudo reboot"
+```
+
+In about a minute the cloud-init should finish running `kubeadm init`:
+
+```bash
+ssh nkpadmin@$VM_IP_ADDRESS "sudo cat /etc/kubernetes/admin.conf" > cluster.kubeconfig
+kubectl get nodes --kubeconfig=cluster.kubeconfig
+```
+
 
 ## Configuration
 

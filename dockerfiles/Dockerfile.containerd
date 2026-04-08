@@ -11,5 +11,11 @@ RUN curl -fsSLO "https://github.com/containerd/containerd/releases/download/v${C
 RUN sha256sum --check "containerd-static-${CONTAINERD_VERSION}-linux-${TARGETARCH}.tar.gz.sha256sum"
 RUN tar Cxzvf /usr/local "containerd-static-${CONTAINERD_VERSION}-linux-${TARGETARCH}.tar.gz"
 
+# Download and set up containerd systemd service
+RUN mkdir -p /usr/lib/systemd/system && \
+    curl -fsSL "https://raw.githubusercontent.com/containerd/containerd/v${CONTAINERD_VERSION}/containerd.service" | \
+    sed "s:/usr/local/bin:/usr/bin:g" > /usr/lib/systemd/system/containerd.service
+
 FROM scratch
 COPY --from=getter /usr/local/bin /usr/local/bin
+COPY --from=getter /usr/lib/systemd/system/containerd.service /usr/lib/systemd/system/containerd.service
