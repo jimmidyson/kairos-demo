@@ -4,7 +4,7 @@ FROM ubuntu:24.04 AS getter
 
 RUN apt-get update && apt-get install -y curl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-ARG CONTAINERD_VERSION=2.1.4
+ARG CONTAINERD_VERSION=2.2.2
 ARG TARGETARCH
 RUN curl -fsSLO "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-static-${CONTAINERD_VERSION}-linux-${TARGETARCH}.tar.gz"
 RUN curl -fsSLO "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-static-${CONTAINERD_VERSION}-linux-${TARGETARCH}.tar.gz.sha256sum"

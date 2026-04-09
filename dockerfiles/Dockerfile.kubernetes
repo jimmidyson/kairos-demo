@@ -4,9 +4,9 @@ FROM ubuntu:24.04 AS getter
 
 RUN apt-get update && apt-get install -y curl ca-certificates --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-ARG K8S_VERSION=v1.34.1
+ARG K8S_VERSION=v1.35.1
 ARG TARGETARCH
-ARG RELEASE_VERSION=v0.16.2
+ARG RELEASE_VERSION=v0.21.0
 
 # Download kubeadm and kubelet binaries
 RUN curl -fsSL --remote-name-all "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/${TARGETARCH}/kubeadm" && \

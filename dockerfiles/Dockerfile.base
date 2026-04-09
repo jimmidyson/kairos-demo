@@ -1,16 +1,20 @@
 # syntax=docker/dockerfile:1
 
-ARG BASE_IMAGE=ubuntu:24.04
+ARG BASE_IMAGE={{ or .BaseImage "ubuntu:24.04" }}
 
-FROM quay.io/kairos/kairos-init:v0.6.2 AS kairos-init
+FROM quay.io/kairos/kairos-init:{{ or .KairosInitVersion "v0.8.5" }} AS kairos-init
 
 FROM ${BASE_IMAGE} AS base-kairos
-ARG VERSION
-RUN --mount=type=bind,from=kairos-init,src=/kairos-init,dst=/kairos-init /kairos-init --level debug --version "${VERSION}"
+ARG VERSION={{ .Version}}
+ARG MODEL={{ or .Model "generic" }}
+COPY --from=kairos-init /kairos-init /kairos-init
+RUN /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}" && \
+    /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}" && \
+    rm -f /kairos-init
 
-RUN --mount=type=secret,id=ubuntu-pro-token pro attach "$(cat /run/secrets/ubuntu-pro-token)"
+RUN pro attach "$(cat /workspace/ubuntuProToken)"
 RUN pro status
 RUN pro enable usg
-RUN apt install usg
+RUN apt-get install -y usg
 RUN usg fix cis_level1_server
-RUN apt install -y rsync
+RUN apt-get install -y rsync

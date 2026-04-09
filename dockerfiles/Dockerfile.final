@@ -29,7 +29,6 @@ COPY --from=kubernetes /usr/lib/systemd/system/kubelet.service.d /usr/lib/system
 RUN ln -sf /usr/lib/systemd/system/containerd.service /etc/systemd/system/multi-user.target.wants/containerd.service && \
     ln -sf /usr/lib/systemd/system/kubelet.service /etc/systemd/system/multi-user.target.wants/kubelet.service
 
-
 # Configure kernel modules for Kubernetes networking
 RUN mkdir -p /etc/modules-load.d && \
     { echo "br_netfilter"; echo "overlay"; } > /etc/modules-load.d/kubernetes.conf

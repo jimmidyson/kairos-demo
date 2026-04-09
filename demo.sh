@@ -16,69 +16,6 @@ function print() {
   printf "${prefix} ${1}\n"
 }
 
-print "Building CIS hardened base image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.base" \
-  --build-arg=VERSION="${VERSION}" \
-	--secret="id=ubuntu-pro-token,env=UBUNTU_PRO_TOKEN" \
-  --tag="${OCI_REGISTRY}/base-image:${VERSION}" \
-  "${SCRIPT_DIR}"
-
-print "Building runc image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.runc" \
-  --tag="${OCI_REGISTRY}/runc:${VERSION}" "${SCRIPT_DIR}"
-
-print "Building CNI plugins image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.cniplugins" \
-  --tag="${OCI_REGISTRY}/cniplugins:${VERSION}" "${SCRIPT_DIR}"
-
-print "Building containerd image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.containerd" \
-  --tag="${OCI_REGISTRY}/containerd:${VERSION}" "${SCRIPT_DIR}"
-
-print "Building Kubernetes image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.kubernetes" \
-  --tag="${OCI_REGISTRY}/kubernetes:${VERSION}" "${SCRIPT_DIR}"
-
-print "Building bootstrap image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.bootstrap" \
-  --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
-  --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
-  --tag="${OCI_REGISTRY}/bootstrap-image:${VERSION}" "${SCRIPT_DIR}"
-
-print "Building final image..."
-docker buildx build --progress=plain \
-  --platform=linux/arm64,linux/amd64 \
-  --pull \
-  --output=type=registry \
-  --file="${SCRIPT_DIR}/dockerfiles/Dockerfile.final" \
-  --build-arg="BASE_IMAGE_VERSION=${VERSION}" \
-  --build-arg="BASE_IMAGE_REGISTRY=${OCI_REGISTRY}" \
-  --tag="${OCI_REGISTRY}/final-image:${VERSION}" "${SCRIPT_DIR}"
-
 readonly KAIROS_KIND_CLUSTER_NAME="${KAIROS_KIND_CLUSTER_NAME:-kairos-demo}"
 
 readonly KUBECONFIG="${SCRIPT_DIR}/kairos-kind.kubeconfig"
@@ -109,83 +46,57 @@ else
     --hide-notes
 fi
 
-if helm status -n kairos-system kairos-crds 2>/dev/null | grep -q '^STATUS: deployed$'; then
-  print 'Kairos CRDs are already installed'
-else
-  print 'Installing Kairos CRDs...'
-  helm upgrade --install \
-    kairos-crds kairos-crds \
-    --repo https://kairos-io.github.io/helm-charts \
-    --namespace kairos-system \
-    --create-namespace \
-    --wait --wait-for-jobs \
-    --hide-notes
-fi
+kubectl apply -k https://github.com/kairos-io/kairos-operator/config/default
 
-print 'Building latest osbuilder image to pull in necessary fixes for auroraboot invocation...'
-osbuilder_tmpdir="$(mktemp -d)"
-trap 'rm -rf "${osbuilder_tmpdir}"' EXIT
-git clone --depth 1 --branch 3779-fix-cloud-image-building --single-branch https://github.com/kairos-io/osbuilder.git "${osbuilder_tmpdir}"
-pushd "${osbuilder_tmpdir}" &>/dev/null
-make docker-build
-kind load docker-image quay.io/kairos/osbuilder:test --name "${KAIROS_KIND_CLUSTER_NAME}"
-popd &>/dev/null
+print "Ensuring registry secret is up to date to be able to push images to ${OCI_REGISTRY}"
+kubectl create secret docker-registry oci-registry-secret \
+  --dry-run=client -o yaml \
+  --docker-server="${OCI_REGISTRY}" \
+  --docker-username="${OCI_REGISTRY_USERNAME}" \
+  --docker-password="${OCI_REGISTRY_PASSWORD}" \
+  | kubectl apply --server-side -f -
 
-if helm status -n kairos-system kairos-osbuilder 2>/dev/null | grep -q '^STATUS: deployed$'; then
-  print 'Kairos osbuiler is already installed'
-else
-  print 'Installing Kairos osbuilder...'
-  helm upgrade --install \
-    kairos-osbuilder osbuilder \
-    --repo https://kairos-io.github.io/helm-charts \
-    --namespace kairos-system \
-    --create-namespace \
-    --wait --wait-for-jobs \
-    --hide-notes \
-    --set-string=image.tag=test \
-    --set-string=toolsImage.tag=v0.14.0
-fi
-
-kubectl create secret --dry-run=client -o yaml generic cloud-config --from-file=userdata=cloud-config.yaml | \
-  kubectl apply -f -
-
-if ! kubectl get osartifacts/bootstrap-iso 2>/dev/null ; then
-  cat <<EOF | kubectl apply --server-side -f -
+for arch in arm64 amd64; do
+  if ! kubectl get osartifacts/base-image-${arch} 2>/dev/null ; then
+    print "Building CIS hardened base image for ${arch}..."
+    kubectl create secret generic base-oci-spec-${arch} \
+      --dry-run=client -o yaml \
+      --from-file=ociSpec="${SCRIPT_DIR}/dockerfiles/Dockerfile.base" \
+      --from-literal=ubuntuProToken="${UBUNTU_PRO_TOKEN}" \
+      | kubectl apply --server-side -f -
+    cat <<EOF | kubectl apply --server-side -f -
 kind: OSArtifact
 apiVersion: build.kairos.io/v1alpha2
 metadata:
-  name: bootstrap-iso
+  name: base-image-${arch}
 spec:
-  imageName: "${OCI_REGISTRY}/bootstrap-image:${VERSION}"
-  iso: true
-  cloudConfigRef:
-    name: cloud-config
-    key: userdata
-  exporters:
-    - template:
-        spec:
-          restartPolicy: Never
-          containers:
-          - name: upload
-            image: quay.io/curl/curl:8.17.0
-            command:
-            - /bin/sh
-            args:
-            - -c
-            - |
-                for f in \$(ls /artifacts)
-                do
-                curl -T /artifacts/\$f http://osartifactbuilder-operator-osbuilder-nginx.kairos-system.svc/upload/\$f
-                done
-            volumeMounts:
-            - name: artifacts
-              mountPath: /artifacts
+  image:
+    ociSpec:
+      ref:
+        name: base-oci-spec
+      buildContextVolume: build-context
+      templateValues:
+        BaseImage: "ubuntu:24.04"
+        KairosInitVersion: "v0.8.5"
+        Version: "${VERSION}"
+        Model: "generic"
+    buildImage:
+      registry: "${OCI_REGISTRY}"
+      repository: "${OCI_REPOSITORY_PREFIX}/base-image"
+      tag: "${VERSION}-ubuntu-24.04-${arch}"
+    push: true
+    imageCredentialsSecretRef:
+      name: oci-registry-secret
+  volumes:
+    - name: build-context
+      secret:
+        secretName: base-oci-spec
+  artifacts:
+    arch: ${arch}
+    iso: true
 EOF
-fi
+  fi
+done
 
-kubectl wait --timeout=60m --for=jsonpath='{.status.phase}'=Ready osartifacts/bootstrap-iso
+kubectl wait --for=jsonpath='{.status.phase}'=Ready osartifacts base-image-{arm64,amd64} --timeout=60m
 
-kubectl get --raw \
-  '/api/v1/namespaces/kairos-system/services/osartifactbuilder-operator-osbuilder-nginx/proxy/bootstrap-iso.iso' | \
-  pv \
-  >bootstrap.iso
