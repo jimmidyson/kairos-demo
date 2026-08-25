@@ -15,12 +15,9 @@ RUN /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}" && \
     /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}" && \
     rm -f /kairos-init
 
-# Ubuntu Pro FIPS. Token is provided at build via secret.
+COPY image/harden-ubuntu.sh /tmp/harden-ubuntu.sh
 RUN --mount=type=secret,id=ubuntu-pro-token,target=/run/secrets/ubuntu-pro-token \
-    pro attach "$(cat /run/secrets/ubuntu-pro-token)" && \
-    pro enable fips-updates || pro enable usg && \
-    apt-get update && apt-get install -y --no-install-recommends usg ca-certificates curl && \
-    (usg fix cis_level1_server || true)
+    bash /tmp/harden-ubuntu.sh /run/secrets/ubuntu-pro-token && rm -f /tmp/harden-ubuntu.sh
 
 ARG TARGETARCH
 ARG CRANE_VERSION=0.20.6

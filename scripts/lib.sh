@@ -10,12 +10,13 @@ FACTORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "${FACTORY_ROOT}/versions.env"
 
+# $'...' so %s prints ESC, not the two-char sequence \033. macOS /bin/bash is 3.2.
 if [[ -t 1 ]]; then
-  _c_blue='\033[34;1m'
-  _c_green='\033[32;1m'
-  _c_red='\033[31;1m'
-  _c_dim='\033[2m'
-  _c_reset='\033[0m'
+  _c_blue=$'\033[34;1m'
+  _c_green=$'\033[32;1m'
+  _c_red=$'\033[31;1m'
+  _c_dim=$'\033[2m'
+  _c_reset=$'\033[0m'
 else
   _c_blue='' _c_green='' _c_red='' _c_dim='' _c_reset=''
 fi
@@ -63,16 +64,17 @@ step_fail() {
 }
 
 next_step() {
-  local n="$1"
-  local f
-  f="$(printf '%s/scripts/%02d-' "${FACTORY_ROOT}" "${n}")"*
-  # shellcheck disable=SC2086
-  if compgen -G "${FACTORY_ROOT}/scripts/$(printf '%02d' "${n}")-*.sh" >/dev/null; then
-    local path
-    path="$(echo "${FACTORY_ROOT}"/scripts/"$(printf '%02d' "${n}")"-*.sh)"
-    printf '%s  next:%s %s\n' "${_c_dim}" "${_c_reset}" "${path}"
-    printf '%s  or:%s ./demo.sh %s\n' "${_c_dim}" "${_c_reset}" "${n}"
-  fi
+  local n="$1" path="" f
+  local prefix
+  prefix="${FACTORY_ROOT}/scripts/$(printf '%02d' "${n}")-"
+  for f in "${prefix}"*.sh; do
+    [[ -f "${f}" ]] || continue
+    path="${f}"
+    break
+  done
+  [[ -n "${path}" ]] || return 0
+  printf '%s  next:%s %s\n' "${_c_dim}" "${_c_reset}" "${path}"
+  printf '%s  or:%s ./demo.sh %s\n' "${_c_dim}" "${_c_reset}" "${n}"
 }
 
 require_factory_env() {

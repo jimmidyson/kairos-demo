@@ -1,6 +1,16 @@
 # Kairos CAPI FIPS factory
 
-Builds FIPS Kairos OS disks (Ubuntu 22.04, 24.04, Rocky 9 × amd64/arm64), runtime **sysexts** for CRI and Kubernetes, and FIPS-rebuilt kubeadm images. A stepped script stands up a CAPX cluster on Nutanix (KIND management plane) and in-place upgrades v1.35 → v1.36.
+Builds hardened Kairos OS disks (Ubuntu 22.04, 24.04, Rocky 9 × amd64/arm64), runtime **sysexts** for CRI and Kubernetes, and FIPS-rebuilt kubeadm images. A stepped script stands up a CAPX cluster on Nutanix (KIND management plane) and in-place upgrades v1.35 → v1.36.
+
+**OS hardening (best-effort in an image build):**
+
+| OS | FIPS | CIS L1 server | DISA STIG |
+|---|---|---|---|
+| Ubuntu 22.04 / 24.04 | Ubuntu Pro `fips-updates` (or `fips`) | `usg fix cis_level1_server` | `usg fix disa_stig` if that USG release has the profile |
+| Rocky 9 | `fips-mode-setup --enable` | OpenSCAP `cis_server_l1` on `ssg-rl9-ds.xml` | OpenSCAP `stig` on the same datastream |
+| RHEL 9 | same as Rocky | same, datastream `ssg-rhel9-ds.xml` | same |
+
+RHEL is not in the default `OSES` list (needs a Red Hat registry pull). Set `BASE_IMAGE` to a RHEL 9 image and use `image/Dockerfile.rocky` + `harden-el.sh` if you have one. CIS then STIG (STIG wins conflicts). Many SCAP/USG rules need a real boot and will report findings during `docker build`; that does not fail the build on Rocky. Ubuntu CIS fix is required; STIG is skipped if USG has no `disa_stig` profile.
 
 Design: [`docs/superpowers/specs/2026-08-25-capi-kairos-fips-design.md`](docs/superpowers/specs/2026-08-25-capi-kairos-fips-design.md)
 
@@ -33,7 +43,7 @@ export NUTANIX_SSH_AUTHORIZED_KEY='ssh-ed25519 AAAA...'
 export CONTROL_PLANE_ENDPOINT_IP=...   # unused VIP/IP for the workload API
 ```
 
-Optional: `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `IMAGE_SOURCE_URI` (HTTP URL Prism can pull the cloud disk from).
+Optional: `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `IMAGE_SOURCE_URI` (HTTP URL Prism can pull the cloud disk from).
 
 ## Run
 

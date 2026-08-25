@@ -5,14 +5,21 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/scripts/lib.sh"
 
 step_start 2 "Build FIPS Kairos bases (3 OS × 2 arch)" \
-  "OS FIPS + kairos-init + prepare-capi-node. No kubeadm in the disk." \
+  "kairos-init + FIPS + CIS L1 + STIG (if the tool has the profile). No kubeadm in the disk." \
   "$(image_prefix)/base:<os>-<arch>"
 
 require_env UBUNTU_PRO_TOKEN
 require_env OCI_REGISTRY
 require_env OCI_REPOSITORY_PREFIX
 
-VERSION="${VERSION:-$(git -C "${ROOT}" describe --always --dirty 2>/dev/null || echo dev)}"
+VERSION="${KAIROS_IMAGE_VERSION}"
+case "${VERSION}" in
+  v[0-9]*.[0-9]*.[0-9]*|[0-9]*.[0-9]*.[0-9]*) ;;
+  *)
+    echo "KAIROS_IMAGE_VERSION=${VERSION} is not semver (kairos-init rejects git SHAs)" >&2
+    exit 2
+    ;;
+esac
 
 for os in ${OSES}; do
   for arch in ${ARCHES}; do

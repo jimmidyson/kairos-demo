@@ -15,9 +15,8 @@ RUN /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}" && \
     /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}" && \
     rm -f /kairos-init
 
-RUN dnf -y install crypto-policies-scripts ca-certificates curl tar gzip && \
-    fips-mode-setup --enable && \
-    dnf clean all
+COPY image/harden-el.sh /tmp/harden-el.sh
+RUN bash /tmp/harden-el.sh && rm -f /tmp/harden-el.sh
 
 ARG TARGETARCH
 ARG CRANE_VERSION=0.20.6

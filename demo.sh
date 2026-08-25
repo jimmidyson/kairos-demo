@@ -22,18 +22,25 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-shopt -s nullglob
-mapfile -t ALL < <(printf '%s\n' "${ROOT}"/scripts/[0-9][0-9]-*.sh | sort)
+# bash 3.2 (macOS /bin/bash) has no mapfile
+ALL=()
+for f in "${ROOT}"/scripts/[0-9][0-9]-*.sh; do
+  [[ -f "${f}" ]] && ALL+=("${f}")
+done
 
 run_one() {
-  local n="$1" f
-  f="$(printf '%s/scripts/%02d-' "${ROOT}" "${n}")"
-  local match=("${ROOT}"/scripts/"$(printf '%02d' "${n}")"-*.sh)
-  if [[ ! -f "${match[0]:-}" ]]; then
+  local n="$1" f found=""
+  local prefix="${ROOT}/scripts/$(printf '%02d' "${n}")-"
+  for f in "${prefix}"*.sh; do
+    [[ -f "${f}" ]] || continue
+    found="${f}"
+    break
+  done
+  if [[ -z "${found}" ]]; then
     echo "no step ${n}" >&2
     exit 2
   fi
-  bash "${match[0]}"
+  bash "${found}"
 }
 
 if [[ $# -eq 0 ]]; then
