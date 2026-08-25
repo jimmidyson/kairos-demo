@@ -1,0 +1,17 @@
+[Unit]
+Description=containerd container runtime
+After=network.target local-fs.target
+
+[Service]
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/bin/containerd
+Delegate=yes
+KillMode=process
+Restart=always
+LimitNPROC=infinity
+LimitCORE=infinity
+LimitNOFILE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
