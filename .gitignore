@@ -2,6 +2,7 @@
 *.iso
 /build/
 /.devbox/
+/.worktrees/
 *.kubeconfig
 
 .envrc.local
