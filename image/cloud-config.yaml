@@ -1,0 +1,33 @@
+#cloud-config
+# OEM config baked into the cloud disk. CABPK supplies kubeadm.
+# Do not run kubeadm here.
+
+name: "capi-kairos-base"
+
+users:
+  - name: "nkpadmin"
+    groups:
+      - admin
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "${NUTANIX_SSH_AUTHORIZED_KEY}"
+
+stages:
+  initramfs.after:
+    - name: "systemd-sysext"
+      if: '[ -e "/sbin/systemctl" ] || [ -e "/usr/bin/systemctl" ]'
+      systemctl:
+        enable:
+          - systemd-sysext
+      files:
+        - path: /etc/systemd/system/systemd-sysext.service.d/capi.conf
+          permissions: 0644
+          content: |
+            [Service]
+            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/usr/lib:/opt"
+        - path: /etc/profile.d/systemd-sysext.sh
+          permissions: 0644
+          content: |
+            export SYSTEMD_SYSEXT_HIERARCHIES="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/usr/lib:/opt"

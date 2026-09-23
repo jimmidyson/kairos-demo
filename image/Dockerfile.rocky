@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+
+ARG BASE_IMAGE=rockylinux:9
+ARG KAIROS_INIT_VERSION=v0.8.5
+ARG VERSION=v0.0.0
+ARG MODEL=generic
+
+FROM quay.io/kairos/kairos-init:${KAIROS_INIT_VERSION} AS kairos-init
+
+FROM ${BASE_IMAGE} AS base-kairos
+ARG VERSION
+ARG MODEL
+COPY --from=kairos-init /kairos-init /kairos-init
+RUN /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}" && \
+    /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}" && \
+    rm -f /kairos-init
+
+COPY image/harden-el.sh /tmp/harden-el.sh
+RUN bash /tmp/harden-el.sh && rm -f /tmp/harden-el.sh
+
+ARG TARGETARCH
+ARG CRANE_VERSION=0.20.6
+RUN arch="${TARGETARCH}"; [ "${arch}" = "amd64" ] && arch=x86_64; \
+    curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_${arch}.tar.gz" \
+    | tar -xz -C /usr/bin crane
+
+COPY image/prepare-capi-node /usr/sbin/prepare-capi-node
+RUN chmod 0755 /usr/sbin/prepare-capi-node && mkdir -p /var/lib/extensions

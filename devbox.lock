@@ -1,6 +1,44 @@
 {
   "lockfile_version": "1",
   "packages": {
+    "clusterctl@latest": {
+      "last_modified": "2026-08-12T11:28:58Z",
+      "resolved": "github:NixOS/nixpkgs/044bfe75bfe4c7bbe043dc17b5e42ea823b84a09#clusterctl",
+      "source": "devbox-search",
+      "version": "1.13.4",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/bl7n12z8ax6mgv3jpifwwbwr5nyg2krs-clusterctl-1.13.4",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/bl7n12z8ax6mgv3jpifwwbwr5nyg2krs-clusterctl-1.13.4"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/9fydqi1wabrap75bm96b1ijpf1h2fl44-clusterctl-1.13.4",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/9fydqi1wabrap75bm96b1ijpf1h2fl44-clusterctl-1.13.4"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/w45y2ysrxrm0n88fw0v6jgkys6ckp55r-clusterctl-1.13.4",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/w45y2ysrxrm0n88fw0v6jgkys6ckp55r-clusterctl-1.13.4"
+        }
+      }
+    },
     "coreutils@latest": {
       "last_modified": "2025-11-23T21:50:36Z",
       "resolved": "github:NixOS/nixpkgs/ee09932cedcef15aaf476f9343d1dea2cb77e261#coreutils",
@@ -257,6 +295,44 @@
       "last_modified": "2025-11-18T11:19:29Z",
       "resolved": "github:NixOS/nixpkgs/6f374686605df381de8541c072038472a5ea2e2d?lastModified=1763464769&narHash=sha256-AJHrsT7VoeQzErpBRlLJM1SODcaayp0joAoEA35yiwM%3D"
     },
+    "go@latest": {
+      "last_modified": "2026-08-12T11:28:58Z",
+      "resolved": "github:NixOS/nixpkgs/044bfe75bfe4c7bbe043dc17b5e42ea823b84a09#go",
+      "source": "devbox-search",
+      "version": "1.26.5",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/4im44k446822ixjai0mdaizqskc90qxr-go-1.26.5",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/4im44k446822ixjai0mdaizqskc90qxr-go-1.26.5"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/yjifjy7qjzm9jli8xhzwy3y6fzw84405-go-1.26.5",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/yjifjy7qjzm9jli8xhzwy3y6fzw84405-go-1.26.5"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/xrgn6m0c5vbz06467q06zdwnk6qqdl7z-go-1.26.5",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/xrgn6m0c5vbz06467q06zdwnk6qqdl7z-go-1.26.5"
+        }
+      }
+    },
     "kind@latest": {
       "last_modified": "2025-11-15T07:28:48Z",
       "resolved": "github:NixOS/nixpkgs/1d4c88323ac36805d09657d13a5273aea1b34f0c#kind",
@@ -434,54 +510,6 @@
             }
           ],
           "store_path": "/nix/store/l0ixqvgf9swj3b19w8jy2q3lx53c54vs-kubernetes-helm-3.19.1"
-        }
-      }
-    },
-    "opentofu@latest": {
-      "last_modified": "2025-11-23T21:50:36Z",
-      "resolved": "github:NixOS/nixpkgs/ee09932cedcef15aaf476f9343d1dea2cb77e261#opentofu",
-      "source": "devbox-search",
-      "version": "1.10.7",
-      "systems": {
-        "aarch64-darwin": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/anl85lrff3b6kjbh8ndyw9caydc2yk8y-opentofu-1.10.7",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/anl85lrff3b6kjbh8ndyw9caydc2yk8y-opentofu-1.10.7"
-        },
-        "aarch64-linux": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/ni8kk95p8xykgq8h07jpq4yk9bqh5cfc-opentofu-1.10.7",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/ni8kk95p8xykgq8h07jpq4yk9bqh5cfc-opentofu-1.10.7"
-        },
-        "x86_64-darwin": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/vs78imrjsk8dkwgd9jmpwaq0ir182q2h-opentofu-1.10.7",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/vs78imrjsk8dkwgd9jmpwaq0ir182q2h-opentofu-1.10.7"
-        },
-        "x86_64-linux": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/yci06ygjgvfd0s9zj4wwjik1pi41avxx-opentofu-1.10.7",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/yci06ygjgvfd0s9zj4wwjik1pi41avxx-opentofu-1.10.7"
         }
       }
     },

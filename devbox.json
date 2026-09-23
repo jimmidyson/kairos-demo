@@ -1,13 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
   "packages": [
+    "clusterctl@latest",
     "coreutils@latest",
     "crane@latest",
     "gh@latest",
+    "go@latest",
     "kind@latest",
     "kubectl@latest",
     "kubernetes-helm@latest",
-    "opentofu@latest",
     "pv@latest",
     "envsubst@latest"
   ]

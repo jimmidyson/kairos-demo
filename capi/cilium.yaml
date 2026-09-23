@@ -1,0 +1,28 @@
+# Cilium via CAAPH. Values pin a current stable chart; override CILIUM_CHART_VERSION if needed.
+apiVersion: addons.cluster.x-k8s.io/v1alpha1
+kind: HelmChartProxy
+metadata:
+  name: cilium
+spec:
+  clusterSelector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: kairos-capi
+  repoURL: https://helm.cilium.io/
+  chartName: cilium
+  releaseName: cilium
+  namespace: kube-system
+  version: "1.17.6"
+---
+# Nutanix CCM — required by current CAPX. Chart from the CCM repo.
+apiVersion: addons.cluster.x-k8s.io/v1alpha1
+kind: HelmChartProxy
+metadata:
+  name: nutanix-ccm
+spec:
+  clusterSelector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: kairos-capi
+  repoURL: https://nutanix.github.io/helm/
+  chartName: nutanix-cloud-provider
+  releaseName: nutanix-ccm
+  namespace: kube-system
