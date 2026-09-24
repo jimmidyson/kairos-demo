@@ -1,5 +1,7 @@
 # CAPI Kairos FIPS Factory Implementation Plan
 
+The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, CCM rendered by `scripts/render_ccm.py`, extension under `extension/cmd/inplace-extension`). The spec is the contract.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the broken ISO demo with a stepped factory that builds FIPS Kairos OS disks, runtime `cri`/`kubernetes` sysexts, FIPS kubeadm images, and a CAPX cluster that in-place upgrades v1.35→v1.36.

@@ -1,6 +1,6 @@
 # Kairos CAPI FIPS factory
 
-Builds hardened Kairos OS disks (Ubuntu 22.04, 24.04, Rocky 9 × amd64/arm64), runtime **sysexts** for CRI and Kubernetes, and FIPS-rebuilt kubeadm images. A stepped script stands up a CAPX cluster on Nutanix (KIND management plane) and in-place upgrades v1.35 → v1.36.
+Builds hardened Kairos OS disks (Ubuntu 22.04, 24.04, Rocky 9 × amd64/arm64), runtime **sysexts** for CRI and Kubernetes, and FIPS-rebuilt kubeadm images. A stepped script stands up a CAPX cluster on Nutanix and in-place upgrades v1.35 → v1.36. The management cluster is KIND, or `container k8s` on macOS when Apple's `container` CLI is installed.
 
 **OS hardening (best-effort in an image build):**
 
@@ -24,7 +24,11 @@ Not a Kairos Kubernetes provider. Not first-boot `kubeadm init`. Bootstrap is **
 devbox shell
 ```
 
-Need Docker buildx, a Harbor project you can push to (e.g. `harbor.eng.nutanix.com`), Ubuntu Pro token, and Prism credentials.
+Need Docker buildx with binfmt/qemu for the non-host architecture, a Harbor project you can push to (e.g. `harbor.eng.nutanix.com`), Ubuntu Pro token, Prism credentials, `openssl` (extension serving cert), and `python3`. `devbox shell` provides Go, clusterctl, kind, and kubectl (the lock resolves Go 1.26.5 and clusterctl 1.13.4). Step 7 installs core, kubeadm bootstrap, and kubeadm control plane at `CAPI_VERSION` (default `v1.13.6`). Image builds pass `GO_VERSION` (default 1.26.5) so the FIPS alias is the one that exists on that toolchain.
+
+On macOS, if `container` is on `PATH`, image builds use `container build` and the management cluster is `container k8s` (`KAIROS_BUILDER=auto`, `KAIROS_MGMT=auto`). Set either to `docker` or `kind` to keep that half on Docker/KIND. Multi-arch indexes are `crane index append`. Apple container refuses a Dockerfile larger than 16KiB.
+
+Step 3 pushes the rootfs and runs AuroraBoot without a Docker socket. The socket would give that container the host Docker daemon, which is root on the machine. AuroraBoot pulls the rootfs with its own registry client. A rootfs tag already in the registry is not rebuilt; delete that tag to build it again. AuroraBoot and the packed sysext still run. The packed sysext is pushed as well.
 
 ## Environment
 
@@ -43,7 +47,7 @@ export NUTANIX_SSH_AUTHORIZED_KEY='ssh-ed25519 AAAA...'
 export CONTROL_PLANE_ENDPOINT_IP=...   # unused VIP/IP for the workload API
 ```
 
-Optional: `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `IMAGE_SOURCE_URI` (HTTP URL Prism can pull the cloud disk from).
+Optional: `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `IMAGE_SOURCE_URI` (HTTP URL Prism can pull the cloud disk from; required if that image is not already COMPLETE in Prism), `NUTANIX_CA_FILE` (PEM Prism trusts), `NUTANIX_INSECURE=1` (skip Prism TLS verify), `SSH_IDENTITY_FILE` (private key matching `NUTANIX_SSH_AUTHORIZED_KEY`; default `~/.ssh/id_ed25519` then `id_rsa`), `KAIROS_OPERATOR_REF` (default `v0.2.2`), `DESTROY_PRISM=0` (step 10 leaves the Prism image), `BASE_IMAGE` (required when `OSES` includes `rhel-9`).
 
 ## Run
 
@@ -55,18 +59,20 @@ Optional: `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-in
 
 | Step | Script | Does |
 |---:|---|---|
-| 1 | `scripts/01-check-env.sh` | Required env, `docker login` |
+| 1 | `scripts/01-check-env.sh` | Required env, registry login |
 | 2 | `scripts/02-build-bases.sh` | FIPS Kairos OCI bases |
 | 3 | `scripts/03-build-sysexts.sh` | `cri` + `kubernetes` sysexts via AuroraBoot |
 | 4 | `scripts/04-build-k8s-images.sh` | FIPS kubeadm images + pause retag |
-| 5 | `scripts/05-osartifact.sh` | KIND, kairos-operator, cloud disks |
-| 6 | `scripts/06-upload-prism.sh` | Prism image for CAPX |
-| 7 | `scripts/07-capi-init.sh` | clusterctl CAPX + CAAPH |
+| 5 | `scripts/05-osartifact.sh` | Management cluster, kairos-operator v0.2.2, nginx, cloud disks |
+| 6 | `scripts/06-upload-prism.sh` | Prism image, waited until COMPLETE |
+| 7 | `scripts/07-capi-init.sh` | clusterctl CAPX + CAAPH, `InPlaceUpdates`, Runtime Extension |
 | 8 | `scripts/08-create-cluster.sh` | 1 CP + 1 worker at v1.35, Cilium, CCM |
-| 9 | `scripts/09-inplace-upgrade.sh` | Same Machines, v1.36 |
-| 10 | `scripts/10-destroy.sh` | Delete cluster (`DESTROY_KIND=1` also drops KIND) |
+| 9 | `scripts/09-inplace-upgrade.sh` | Patch version; the extension upgrades the same Machines to v1.36 |
+| 10 | `scripts/10-destroy.sh` | Delete cluster and Prism image (`DESTROY_KIND=1` also drops the management cluster) |
 
-`prepare-capi-node --registry $OCI_REGISTRY/$OCI_REPOSITORY_PREFIX --kubernetes-version v1.35.8` is the only node-local installer. CAPI `preKubeadmCommands` runs it on first boot; step 9 re-runs it over SSH for in-place upgrade.
+`prepare-capi-node --registry $OCI_REGISTRY/$OCI_REPOSITORY_PREFIX --kubernetes-version v1.35.8` is the only node-local installer. CAPI `preKubeadmCommands` runs it on first boot. Step 7 registers the in-place Runtime Extension; step 9 only patches the Kubernetes version. The extension SSHes `prepare-capi-node` and `kubeadm upgrade`. KubeadmControlPlane `maxSurge` is 0 and the MachineDeployment `maxUnavailable` is 1 so that update can stay on the existing VMs. The extension pod uses the management node's network. On Docker Desktop that is the Linux VM; with `container k8s` it is the Apple container VM. AHV addresses have to be reachable from there.
+
+FIPS packages are installed between `kairos-init -s install` and `-s init`, and `fips=1` is appended to `/etc/default/grub` before the UKI is built. The `cri` sysext is compiled on the matching distro image (`ubuntu:24.04`, `rockylinux:9`), not the Kairos image. containerd, runc, and CNI plugins are built with `GOFIPS140=certified`. Kubeadm image names and tags, including pause, come from `kubeadm config images list` and are pushed as a manifest list. `prepare-capi-node` reads `/usr/lib/kairos/pause-tag` from the kubernetes sysext and writes a containerd 2 sandbox pin.
 
 ## Checks (not a cluster e2e)
 
@@ -76,6 +82,7 @@ bash tests/prepare-capi-node_test.sh
 bash tests/image_contract_test.sh
 bash tests/sysext_names_test.sh
 bash tests/k8s_images_list_test.sh
+bash tests/prism_test.sh
 ( cd extension && go test ./... )
 ```
 
@@ -86,4 +93,4 @@ Prefix = `$OCI_REGISTRY/$OCI_REPOSITORY_PREFIX`
 - `base:ubuntu-24.04-amd64` (and the other OS/arch tags)
 - `cri:ubuntu-24.04-amd64`
 - `kubernetes:v1.36.4-amd64`
-- `kube-apiserver:v1.36.4` (and controller-manager, scheduler, proxy, etcd, coredns, pause)
+- `kube-apiserver:v1.36.4` (and controller-manager, scheduler, proxy). etcd, coredns, and pause use the name and tag from `kubeadm config images list` for that Kubernetes version (not the Kubernetes version as the tag). Step 3 pushes `cri-rootfs` and `kubernetes-rootfs` so AuroraBoot can pull them, then pushes the packed sysext.

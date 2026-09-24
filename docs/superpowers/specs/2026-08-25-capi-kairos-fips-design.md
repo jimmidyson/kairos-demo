@@ -1,7 +1,7 @@
 # CAPI kubeadm Kairos FIPS image factory
 
 **Date:** 2026-08-25
-**Status:** approved (brainstorming session)
+**Status:** implemented (see Implementation notes)
 
 ## Problem
 
@@ -174,7 +174,7 @@ Cilium and Nutanix CCM stay upstream via CAAPH.
 
 ### VM disks
 
-kairos-operator on KIND. One `OSArtifact` per OS × arch, `cloudImage: true`, source = base OCI image. Output is a preinstalled raw/qcow2 (Kairos first-boot install happens at image build, not at CAPX VM boot). Sysexts are not in the disk.
+kairos-operator on KIND. One `OSArtifact` per OS × arch, `spec.image.ref` = base OCI image, `spec.artifacts.cloudImage: true`. Output is a preinstalled raw disk named after the OSArtifact (`cloud-<os>-<arch>.raw`). Kairos first-boot install happens at image build, not at CAPX VM boot. Sysexts are not in the disk.
 
 Upload **only** Ubuntu 24.04 amd64 to Prism for the scripted cluster. Other amd64 disks may be uploaded if a step is run with overrides; arm64 disks are not uploaded.
 
@@ -280,6 +280,19 @@ No cluster e2e suite. Checks that must exist:
 - Script lib: missing-env fails with the variable name.
 
 Human-run `./demo.sh` is the integration proof.
+
+## Implementation notes
+
+- On macOS, `KAIROS_BUILDER=auto` and `KAIROS_MGMT=auto` select Apple `container` for image builds and `container k8s` for the management cluster when that CLI is installed. `KAIROS_BUILDER=docker` and `KAIROS_MGMT=kind` keep Docker buildx and KIND. Both builders push the sysext rootfs and run AuroraBoot without a Docker socket, so that container cannot drive the host daemon. AuroraBoot pulls the rootfs itself. Multi-arch indexes are `crane index append`.
+- Core, kubeadm bootstrap, and kubeadm control plane are `CAPI_VERSION` (default `v1.13.6`). The Runtime Extension module is the same release. CAPX and CAAPH stay on the versions clusterctl selects for that contract.
+- Kairos operator is pinned to `v0.2.2` (`spec.image.ref`, `spec.artifacts.cloudImage`, `spec.artifacts.cloudConfigRef`). Step 5 retargets the Deployment image because that tag's kustomize still names the previous release. `config/nginx` is applied separately. The Ubuntu 24.04 amd64 disk is downloaded with `kubectl port-forward`, and a missing file fails step 5.
+- FIPS and the CIS/STIG scripts run after `kairos-init -s install` and before `-s init`. `fips=1` is written to `/etc/default/grub` so the UKI build can see it. Those profiles remove `rsync` and mask `systemd-timesyncd`. `rsync` is installed again before `-s init` because dracut will not build the UKI without it. `chrony` and `systemd-timesyncd` cannot be installed together. timesyncd is installed for `-s init`, which enables it. `chrony` is removed without purge so its STIG config remains, then installed again. timesyncd is purged and masked. The Ubuntu Pro token is removed from the image after attach.
+- The `cri` sysext compiles on the distro image that matches the OS (`distro_image`), so it links that glibc without using the Kairos root as a build environment. containerd, runc, and the CNI plugins are built with `GOFIPS140=certified`.
+- Static pod image names and tags are whatever `kubeadm config images list --image-repository` prints. Each tag is a multi-arch manifest list. The kubernetes sysext carries `/usr/lib/kairos/pause-tag`; `prepare-capi-node` applies it as containerd 2 `plugins.'io.containerd.cri.v1.images'.pinned_images.sandbox` after `systemd-sysext refresh`, and it pulls sysexts before stopping kubelet.
+- Step 7 deploys the Runtime Extension (`CanUpdateMachine`, `CanUpdateMachineSet`, `UpdateMachine`) and turns on `InPlaceUpdates`. `CanUpdate*` returns a JSON patch only when the Nutanix image identity is unchanged and every spec diff is the Kubernetes version string. Step 9 patches the control plane first, waits, then patches workers. It does not SSH itself.
+- KubeadmControlPlane `maxSurge` is 0. MachineDeployment `maxSurge` is 0 and `maxUnavailable` is 1 (v1beta2 field is `spec.rollout.strategy`).
+- `imageRepository` is set on `kubeadmConfigSpec.clusterConfiguration`. Prism calls use a curl config file. TLS is verified unless `NUTANIX_INSECURE=1`; `NUTANIX_CA_FILE` is the Prism CA. Step 6 fails until the image is `COMPLETE`. Step 10 deletes it.
+- Nutanix CCM is a second HelmChartProxy rendered at step 8 with Prism credentials under `config.prismCentral`. The chart repo is `NUTANIX_CCM_REPO` (default `https://nutanix-cloud-native.github.io/cloud-provider-nutanix`). `https://nutanix.github.io/helm-releases` is the NCM product index, not this chart.
 
 ## Open ceilings (deliberate)
 

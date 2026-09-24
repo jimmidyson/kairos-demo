@@ -33,6 +33,27 @@ image_prefix() {
   printf '%s/%s\n' "${OCI_REGISTRY:?}" "${OCI_REPOSITORY_PREFIX:?}"
 }
 
+# Distro image whose glibc matches a Kairos base. The cri sysext links against
+# this, not the Kairos image (kairos-init is a poor build root).
+distro_image() {
+  local os="$1"
+  case "${os}" in
+    ubuntu-*) printf 'ubuntu:%s\n' "${os#ubuntu-}" ;;
+    rocky-9) printf '%s\n' "${ROCKY_BASE_IMAGE:-rockylinux:9}" ;;
+    rhel-*)
+      if [[ -z "${BASE_IMAGE:-}" ]]; then
+        printf 'BASE_IMAGE is required for %s\n' "${os}" >&2
+        return 1
+      fi
+      printf '%s\n' "${BASE_IMAGE}"
+      ;;
+    *)
+      printf 'unsupported OS %s\n' "${os}" >&2
+      return 1
+      ;;
+  esac
+}
+
 base_image() {
   local os="$1" arch="$2"
   printf '%s/base:%s-%s\n' "$(image_prefix)" "${os}" "${arch}"
@@ -90,9 +111,250 @@ require_factory_env() {
   done
 }
 
-harbor_login() {
+apple_container_available() {
+  [[ "$(uname -s)" == Darwin ]] || return 1
+  command -v container >/dev/null 2>&1
+}
+
+apple_k8s_available() {
+  apple_container_available || return 1
+  container --help 2>/dev/null | grep -q 'k8s'
+}
+
+# auto|docker|container. Explicit values are not checked against the host.
+builder_name() {
+  case "${KAIROS_BUILDER:-auto}" in
+    docker | container) printf '%s\n' "${KAIROS_BUILDER}" ;;
+    auto)
+      if apple_container_available; then
+        printf 'container\n'
+      else
+        printf 'docker\n'
+      fi
+      ;;
+    *)
+      printf 'KAIROS_BUILDER=%s is not auto, docker, or container\n' "${KAIROS_BUILDER}" >&2
+      return 2
+      ;;
+  esac
+}
+
+# auto|kind|container. The cluster name stays KAIROS_KIND_CLUSTER_NAME.
+mgmt_name() {
+  case "${KAIROS_MGMT:-auto}" in
+    kind | container) printf '%s\n' "${KAIROS_MGMT}" ;;
+    auto)
+      if apple_k8s_available; then
+        printf 'container\n'
+      else
+        printf 'kind\n'
+      fi
+      ;;
+    *)
+      printf 'KAIROS_MGMT=%s is not auto, kind, or container\n' "${KAIROS_MGMT}" >&2
+      return 2
+      ;;
+  esac
+}
+
+# Crane and AuroraBoot's registry client read this file. Writing it is not a docker CLI call.
+write_registry_config() {
+  local dir="$1"
+  mkdir -p "${dir}"
+  OCI_REGISTRY="${OCI_REGISTRY}" OCI_REGISTRY_USERNAME="${OCI_REGISTRY_USERNAME}" \
+    OCI_REGISTRY_PASSWORD="${OCI_REGISTRY_PASSWORD}" python3 - "${dir}/config.json" <<'PY'
+import base64, json, os, sys
+reg = os.environ["OCI_REGISTRY"]
+user = os.environ["OCI_REGISTRY_USERNAME"]
+pw = os.environ["OCI_REGISTRY_PASSWORD"]
+auth = base64.b64encode(("%s:%s" % (user, pw)).encode()).decode()
+with open(sys.argv[1], "w") as f:
+    json.dump({"auths": {reg: {"auth": auth}}}, f)
+PY
+  chmod 644 "${dir}/config.json"
+}
+
+prepare_registry_auth() {
+  [[ -n "${_registry_auth_ready:-}" ]] && return 0
   require_env OCI_REGISTRY
   require_env OCI_REGISTRY_USERNAME
   require_env OCI_REGISTRY_PASSWORD
-  printf '%s\n' "${OCI_REGISTRY_PASSWORD}" | docker login "${OCI_REGISTRY}" -u "${OCI_REGISTRY_USERNAME}" --password-stdin
+  local dir="${FACTORY_ROOT}/build/registry-config"
+  write_registry_config "${dir}"
+  export DOCKER_CONFIG="${dir}"
+  if [[ "$(builder_name)" == container ]]; then
+    printf '%s\n' "${OCI_REGISTRY_PASSWORD}" | container registry login \
+      --username "${OCI_REGISTRY_USERNAME}" --password-stdin "${OCI_REGISTRY}"
+  fi
+  _registry_auth_ready=1
+}
+
+harbor_login() {
+  prepare_registry_auth
+}
+
+# True when the tag is already in the registry. A miss, including a registry
+# error, is false so the caller builds. Delete the tag to force a rebuild.
+registry_image_exists() {
+  local ref="$1"
+  prepare_registry_auth
+  crane digest "${ref}" >/dev/null 2>&1
+}
+
+# Image build. --push uses buildx on Docker and `container image push` on Apple container.
+# A local build (no --push) is loaded into the engine `kind load` or `container k8s load-image` reads.
+# ponytail: Apple container rejects Dockerfiles over 16KiB (container#735). These Dockerfiles are smaller.
+oci_build() {
+  local builder="" platform="" file="" tag="" push=0 context=""
+  local build_args=() secrets=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --builder) builder="${2:-}"; shift 2 ;;
+      --builder=*) builder="${1#--builder=}"; shift ;;
+      --platform) platform="${2:-}"; shift 2 ;;
+      --platform=*) platform="${1#--platform=}"; shift ;;
+      --file | -f) file="${2:-}"; shift 2 ;;
+      --file=* | -f=*) file="${1#*=}"; shift ;;
+      --tag | -t) tag="${2:-}"; shift 2 ;;
+      --tag=* | -t=*) tag="${1#*=}"; shift ;;
+      --build-arg) build_args+=("${2:-}"); shift 2 ;;
+      --build-arg=*) build_args+=("${1#--build-arg=}"); shift ;;
+      --secret) secrets+=("${2:-}"); shift 2 ;;
+      --secret=*) secrets+=("${1#--secret=}"); shift ;;
+      --push) push=1; shift ;;
+      --) shift; break ;;
+      -*)
+        printf 'oci_build: unknown flag %s\n' "$1" >&2
+        return 2
+        ;;
+      *) context="$1"; shift ;;
+    esac
+  done
+  if [[ -z "${tag}" || -z "${context}" ]]; then
+    printf 'oci_build: need a tag and a context directory\n' >&2
+    return 2
+  fi
+  if [[ -z "${builder}" ]]; then
+    builder="$(builder_name)"
+  fi
+  printf '  build via %s %s\n' "${builder}" "${tag}" >&2
+  local cmd=() a
+  case "${builder}" in
+    container)
+      cmd=(container build --tag "${tag}")
+      ;;
+    docker)
+      if [[ "${push}" -eq 1 || ${#secrets[@]} -gt 0 ]]; then
+        cmd=(docker buildx build)
+        if [[ "${push}" -eq 1 ]]; then
+          cmd+=(--push)
+        else
+          cmd+=(--load)
+        fi
+      else
+        cmd=(docker build)
+      fi
+      cmd+=(--tag "${tag}")
+      ;;
+    *)
+      printf 'oci_build: unknown builder %s\n' "${builder}" >&2
+      return 2
+      ;;
+  esac
+  [[ -n "${file}" ]] && cmd+=(--file "${file}")
+  [[ -n "${platform}" ]] && cmd+=(--platform "${platform}")
+  if [[ ${#build_args[@]} -gt 0 ]]; then
+    for a in "${build_args[@]}"; do
+      cmd+=(--build-arg "${a}")
+    done
+  fi
+  if [[ ${#secrets[@]} -gt 0 ]]; then
+    for a in "${secrets[@]}"; do
+      cmd+=(--secret "${a}")
+    done
+  fi
+  cmd+=("${context}")
+  "${cmd[@]}"
+  if [[ "${builder}" == container && "${push}" -eq 1 ]]; then
+    prepare_registry_auth
+    container image push "${tag}"
+  fi
+}
+
+# The rootfs is already in the registry. AuroraBoot pulls it. Neither runner
+# gets a Docker socket: that socket is root on the host.
+run_auroraboot_sysext() {
+  local name="$1" image="$2" arch="$3" out_dir="$4" rc=0
+  mkdir -p "${out_dir}"
+  prepare_registry_auth
+  case "$(builder_name)" in
+    container)
+      container run --rm \
+        -e DOCKER_CONFIG=/auth \
+        --mount "type=bind,source=${out_dir},target=/build" \
+        --mount "type=bind,source=${DOCKER_CONFIG},target=/auth,readonly" \
+        "${AURORABOOT_IMAGE}" \
+        sysext --arch "${arch}" --output=/build "${name}" "${image}" || rc=$?
+      ;;
+    *)
+      docker run --rm \
+        -e DOCKER_CONFIG=/auth \
+        -v "${out_dir}:/build" \
+        -v "${DOCKER_CONFIG}:/auth:ro" \
+        "${AURORABOOT_IMAGE}" \
+        sysext --arch "${arch}" --output=/build "${name}" "${image}" || rc=$?
+      ;;
+  esac
+  return "${rc}"
+}
+
+mgmt_exists() {
+  local name="$1"
+  case "$(mgmt_name)" in
+    kind) kind get clusters 2>/dev/null | grep -qx "${name}" ;;
+    container) container k8s list | awk -v n="${name}" 'NR>1 && $1==n { found=1 } END { exit !found }' ;;
+  esac
+}
+
+mgmt_create() {
+  local name="$1"
+  case "$(mgmt_name)" in
+    kind) kind create cluster --name "${name}" ;;
+    container) container k8s create --name "${name}" ;;
+  esac
+}
+
+mgmt_delete() {
+  local name="$1"
+  case "$(mgmt_name)" in
+    kind) kind delete cluster --name "${name}" ;;
+    container) container k8s delete --name "${name}" ;;
+  esac
+}
+
+mgmt_write_kubeconfig() {
+  local name="$1" dest="$2"
+  case "$(mgmt_name)" in
+    kind) kind get kubeconfig --name "${name}" >"${dest}" ;;
+    container)
+      rm -f "${dest}"
+      container k8s write-config --name "${name}" --kubeconfig "${dest}"
+      ;;
+  esac
+}
+
+# Build the extension into the image store the management cluster can load.
+mgmt_build_and_load() {
+  local image="$1" file="$2" context="$3"
+  shift 3
+  case "$(mgmt_name)" in
+    container)
+      oci_build --builder container "$@" --tag "${image}" --file "${file}" "${context}"
+      container k8s load-image --name "${KAIROS_KIND_CLUSTER_NAME}" "${image}"
+      ;;
+    *)
+      oci_build --builder docker "$@" --tag "${image}" --file "${file}" "${context}"
+      kind load docker-image "${image}" --name "${KAIROS_KIND_CLUSTER_NAME}"
+      ;;
+  esac
 }

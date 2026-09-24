@@ -6,7 +6,7 @@ source "${ROOT}/scripts/lib.sh"
 
 step_start 1 "Check environment and registry login" \
   "Fail fast on missing secrets; prove we can push to Harbor." \
-  "docker login ${OCI_REGISTRY:-<OCI_REGISTRY>}"
+  "registry login ${OCI_REGISTRY:-<OCI_REGISTRY>}"
 
 require_factory_env
 harbor_login

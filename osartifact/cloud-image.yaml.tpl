@@ -12,15 +12,16 @@ kind: OSArtifact
 metadata:
   name: cloud-${OS}-${ARCH}
 spec:
-  imageName: ${BASE_IMAGE}
-  cloudImage: true
-  cloudConfigRef:
-    name: cloud-config-${OS}-${ARCH}
-    key: userdata
+  image:
+    ref: ${BASE_IMAGE}
+    imageCredentialsSecretRef:
+      name: oci-registry-secret
   artifacts:
     arch: ${ARCH}
-  imageCredentialsSecretRef:
-    name: oci-registry-secret
+    cloudImage: true
+    cloudConfigRef:
+      name: cloud-config-${OS}-${ARCH}
+      key: userdata
   exporters:
     - template:
         spec:

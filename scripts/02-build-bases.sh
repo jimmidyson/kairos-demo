@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/scripts/lib.sh"
 
 step_start 2 "Build FIPS Kairos bases (3 OS × 2 arch)" \
-  "kairos-init + FIPS + CIS L1 + STIG (if the tool has the profile). No kubeadm in the disk." \
+  "kairos-init install, then FIPS + CIS L1 + STIG, then kairos-init init. No kubeadm in the disk." \
   "$(image_prefix)/base:<os>-<arch>"
 
 require_env UBUNTU_PRO_TOKEN
@@ -14,7 +14,7 @@ require_env OCI_REPOSITORY_PREFIX
 
 VERSION="${KAIROS_IMAGE_VERSION}"
 case "${VERSION}" in
-  v[0-9]*.[0-9]*.[0-9]*|[0-9]*.[0-9]*.[0-9]*) ;;
+  v[0-9]*.[0-9]*.[0-9]* | [0-9]*.[0-9]*.[0-9]*) ;;
   *)
     echo "KAIROS_IMAGE_VERSION=${VERSION} is not semver (kairos-init rejects git SHAs)" >&2
     exit 2
@@ -25,13 +25,20 @@ for os in ${OSES}; do
   for arch in ${ARCHES}; do
     tag="$(base_image "${os}" "${arch}")"
     printf '  building %s\n' "${tag}"
-    df="${ROOT}/image/Dockerfile.ubuntu"
-    base_img="ubuntu:${os#ubuntu-}"
-    if [[ "${os}" == rocky-9 ]]; then
-      df="${ROOT}/image/Dockerfile.rocky"
-      base_img="rockylinux:9"
-    fi
-    docker buildx build \
+    case "${os}" in
+      ubuntu-*)
+        df="${ROOT}/image/Dockerfile.ubuntu"
+        ;;
+      rocky-* | rhel-*)
+        df="${ROOT}/image/Dockerfile.rocky"
+        ;;
+      *)
+        echo "unsupported OS ${os}" >&2
+        exit 2
+        ;;
+    esac
+    base_img="$(distro_image "${os}")"
+    oci_build \
       --platform="linux/${arch}" \
       --push \
       --file="${df}" \

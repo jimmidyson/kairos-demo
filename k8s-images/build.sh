@@ -1,65 +1,158 @@
 #!/usr/bin/env bash
-# Build FIPS kubeadm static-pod images and retag pause into ${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}.
+# Build FIPS kubeadm images for one Kubernetes version, both arches, as a manifest list.
+# Names and tags come from `kubeadm config images list`.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../scripts/lib.sh
 source "${ROOT}/scripts/lib.sh"
+# shellcheck source=../scripts/kubeadm-images.sh
+source "${ROOT}/scripts/kubeadm-images.sh"
+# shellcheck source=../scripts/enable-fips-go.sh
+source "${ROOT}/scripts/enable-fips-go.sh"
 
 K8S_VERSION="${1:?kubernetes version e.g. v1.36.4}"
-ARCH="${2:?amd64|arm64}"
 PREFIX="$(image_prefix)"
-WORKDIR="${ROOT}/build/k8s-images/${K8S_VERSION}-${ARCH}"
+WORKDIR="${ROOT}/build/k8s-images/${K8S_VERSION}"
 mkdir -p "${WORKDIR}"
 
-export GOFIPS140=certified CGO_ENABLED=0 GOOS=linux GOARCH="${ARCH}"
+apply_fips_env() {
+  local govfile="$1"
+  enable_fips_go "${govfile}"
+  export CGO_ENABLED=0 GOOS=linux
+}
+
+git_ref_for_tag() {
+  local tag="$1"
+  case "${tag}" in
+    v*) printf '%s\n' "${tag}" ;;
+    *) printf 'v%s\n' "${tag}" ;;
+  esac
+}
+
+clone() {
+  local url="$1" dest="$2" ref="$3"
+  if [[ ! -d "${dest}/.git" ]]; then
+    git clone --depth 1 --branch "${ref}" "${url}" "${dest}"
+  fi
+}
 
 build_k8s_bin() {
-  local bin="$1"
+  local bin="$1" arch="$2"
   local src="${WORKDIR}/kubernetes"
-  if [[ ! -d "${src}/.git" ]]; then
-    git clone --depth 1 --branch "${K8S_VERSION}" https://github.com/kubernetes/kubernetes.git "${src}"
+  clone https://github.com/kubernetes/kubernetes.git "${src}" "${K8S_VERSION}"
+  apply_fips_env "${src}/.go-version"
+  export GOARCH="${arch}"
+  (cd "${src}" && make "${bin}" KUBE_BUILD_PLATFORMS="linux/${arch}")
+  local binpath="${src}/_output/local/go/bin/linux_${arch}/${bin}"
+  if [[ ! -x "${binpath}" ]]; then
+    binpath="${src}/_output/bin/${bin}"
   fi
-  (cd "${src}" && make "${bin}" KUBE_BUILD_PLATFORMS="linux/${ARCH}")
+  printf '%s\n' "${binpath}"
 }
 
-pack_bin() {
-  local name="$1" binpath="$2"
-  local ctx="${WORKDIR}/${name}"
+build_etcd() {
+  local tag="$1" arch="$2"
+  local src="${WORKDIR}/etcd"
+  clone https://github.com/etcd-io/etcd.git "${src}" "$(git_ref_for_tag "${tag}")"
+  apply_fips_env "${src}/.go-version"
+  export GOARCH="${arch}"
+  if [[ ! -f "${src}/.go-version" ]]; then
+    enable_fips_go ""
+    export CGO_ENABLED=0 GOOS=linux GOARCH="${arch}"
+  fi
+  (cd "${src}" && go build -o "${WORKDIR}/etcd-${arch}" ./cmd/etcd)
+  printf '%s\n' "${WORKDIR}/etcd-${arch}"
+}
+
+build_coredns() {
+  local tag="$1" arch="$2"
+  local src="${WORKDIR}/coredns"
+  clone https://github.com/coredns/coredns.git "${src}" "$(git_ref_for_tag "${tag}")"
+  apply_fips_env "${src}/.go-version"
+  export GOARCH="${arch}"
+  if [[ ! -f "${src}/.go-version" ]]; then
+    enable_fips_go ""
+    export CGO_ENABLED=0 GOOS=linux GOARCH="${arch}"
+  fi
+  (cd "${src}" && go build -o "${WORKDIR}/coredns-${arch}" .)
+  printf '%s\n' "${WORKDIR}/coredns-${arch}"
+}
+
+pack_and_push() {
+  local ref="$1" binpath="$2" binname="$3" arch="$4"
+  local ctx="${WORKDIR}/${binname}-${arch}"
   mkdir -p "${ctx}"
+  cp "${binpath}" "${ctx}/${binname}"
   cat >"${ctx}/Dockerfile" <<EOF
 FROM scratch
-COPY ${name} /usr/local/bin/${name}
-ENTRYPOINT ["/usr/local/bin/${name}"]
+COPY ${binname} /usr/local/bin/${binname}
+ENTRYPOINT ["/usr/local/bin/${binname}"]
 EOF
-  cp "${binpath}" "${ctx}/${name}"
-  docker buildx build --platform="linux/${ARCH}" --push -t "${PREFIX}/${name}:${K8S_VERSION}" "${ctx}"
+  local tag="${ref}"
+  # shellcheck disable=SC2086
+  if [[ "$(echo ${ARCHES} | wc -w | tr -d ' ')" -gt 1 ]]; then
+    tag="${ref}-${arch}"
+  fi
+  oci_build --platform="linux/${arch}" --push -t "${tag}" "${ctx}"
 }
 
-echo "building kubernetes control-plane binaries ${K8S_VERSION} ${ARCH} with GOFIPS140=certified"
-for b in kube-apiserver kube-controller-manager kube-scheduler kube-proxy; do
-  build_k8s_bin "${b}"
-  binpath="${WORKDIR}/kubernetes/_output/local/go/bin/linux_${ARCH}/${b}"
-  if [[ ! -x "${binpath}" ]]; then
-    binpath="${WORKDIR}/kubernetes/_output/bin/${b}"
+publish_index() {
+  local ref="$1"
+  # shellcheck disable=SC2086
+  if [[ "$(echo ${ARCHES} | wc -w | tr -d ' ')" -le 1 ]]; then
+    return 0
   fi
-  pack_bin "${b}" "${binpath}"
-done
+  local cmd=(crane index append -t "${ref}") a
+  for a in ${ARCHES}; do
+    cmd+=(-m "${ref}-${a}")
+  done
+  "${cmd[@]}"
+}
 
-# etcd version kubeadm pins — query from k8s source if present, else 3.5.21
-ETCD_VERSION="${ETCD_VERSION:-3.5.21}"
-if [[ ! -d "${WORKDIR}/etcd/.git" ]]; then
-  git clone --depth 1 --branch "v${ETCD_VERSION}" https://github.com/etcd-io/etcd.git "${WORKDIR}/etcd"
+copy_pause() {
+  local tag="$1"
+  echo "retag pause ${tag}"
+  crane copy "registry.k8s.io/pause:${tag}" "${PREFIX}/pause:${tag}"
+}
+
+main() {
+  local list name tag ref bin binpath arch
+  prepare_registry_auth
+  list="$(kubeadm_image_list "${K8S_VERSION}" "${PREFIX}")"
+  mkdir -p "${ROOT}/build"
+  printf '%s\n' "${list}" >"${ROOT}/build/images-${K8S_VERSION}.txt"
+  local pause
+  pause="$(printf '%s\n' "${list}" | parse_image_list "${PREFIX}" | pause_tag_from_list)"
+  printf '%s\n' "${pause}" >"${ROOT}/build/pause-tag-${K8S_VERSION}"
+
+  while IFS=$'\t' read -r name tag; do
+    [[ -n "${name}" ]] || continue
+    ref="${PREFIX}/${name}:${tag}"
+    bin="${name##*/}"
+    case "${bin}" in
+      pause)
+        copy_pause "${tag}"
+        ;;
+      kube-apiserver | kube-controller-manager | kube-scheduler | kube-proxy | etcd | coredns)
+        for arch in ${ARCHES}; do
+          case "${bin}" in
+            etcd) binpath="$(build_etcd "${tag}" "${arch}")" ;;
+            coredns) binpath="$(build_coredns "${tag}" "${arch}")" ;;
+            *) binpath="$(build_k8s_bin "${bin}" "${arch}")" ;;
+          esac
+          pack_and_push "${ref}" "${binpath}" "${bin}" "${arch}"
+        done
+        publish_index "${ref}"
+        ;;
+      *)
+        echo "kubeadm lists unknown image ${name}:${tag}" >&2
+        exit 1
+        ;;
+    esac
+  done < <(printf '%s\n' "${list}" | parse_image_list "${PREFIX}")
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
 fi
-(cd "${WORKDIR}/etcd" && go build -o etcd ./cmd/etcd)
-pack_bin etcd "${WORKDIR}/etcd/etcd"
-
-COREDNS_VERSION="${COREDNS_VERSION:-1.12.1}"
-if [[ ! -d "${WORKDIR}/coredns/.git" ]]; then
-  git clone --depth 1 --branch "v${COREDNS_VERSION}" https://github.com/coredns/coredns.git "${WORKDIR}/coredns"
-fi
-(cd "${WORKDIR}/coredns" && go build -o coredns .)
-pack_bin coredns "${WORKDIR}/coredns/coredns"
-
-echo "retag pause ${PAUSE_IMAGE_TAG}"
-crane copy "registry.k8s.io/pause:${PAUSE_IMAGE_TAG}" "${PREFIX}/pause:${PAUSE_IMAGE_TAG}" --platform="linux/${ARCH}"

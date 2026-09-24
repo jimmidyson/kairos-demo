@@ -10,14 +10,14 @@ FROM quay.io/kairos/kairos-init:${KAIROS_INIT_VERSION} AS kairos-init
 FROM ${BASE_IMAGE} AS base-kairos
 ARG VERSION
 ARG MODEL
-COPY --from=kairos-init /kairos-init /kairos-init
-RUN /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}" && \
-    /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}" && \
-    rm -f /kairos-init
+# Packages and FIPS cmdline have to land before -s init builds the UKI.
+# The binary is mounted from the kairos-init stage so it is not copied into a layer.
+RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
+    /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}"
 
-COPY image/harden-ubuntu.sh /tmp/harden-ubuntu.sh
-RUN --mount=type=secret,id=ubuntu-pro-token,target=/run/secrets/ubuntu-pro-token \
-    bash /tmp/harden-ubuntu.sh /run/secrets/ubuntu-pro-token && rm -f /tmp/harden-ubuntu.sh
+RUN --mount=type=bind,source=image/harden-ubuntu.sh,target=/tmp/harden-ubuntu.sh \
+    --mount=type=secret,id=ubuntu-pro-token,target=/run/secrets/ubuntu-pro-token \
+    bash /tmp/harden-ubuntu.sh /run/secrets/ubuntu-pro-token
 
 ARG TARGETARCH
 ARG CRANE_VERSION=0.20.6
@@ -27,3 +27,35 @@ RUN arch="${TARGETARCH}"; [ "${arch}" = "amd64" ] && arch=x86_64; \
 
 COPY image/prepare-capi-node /usr/sbin/prepare-capi-node
 RUN chmod 0755 /usr/sbin/prepare-capi-node && mkdir -p /var/lib/extensions
+
+# CIS/STIG remove rsync and install chrony. dracut needs rsync.
+# chrony and systemd-timesyncd both provide time-daemon, so only one can be installed.
+# kairos-init enables timesyncd, which means chrony has to be absent for that step.
+RUN n=0; until apt-get update; do \
+      n=$((n + 1)); \
+      [ "${n}" -lt 5 ] || exit 1; \
+      echo "apt-get update failed (attempt ${n}); retrying after mirror sync" >&2; \
+      rm -rf /var/lib/apt/lists/*; \
+      sleep $((n * 5)); \
+    done \
+ && apt-get install -y --no-install-recommends rsync systemd-timesyncd chrony- \
+ && systemctl unmask systemd-timesyncd \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
+    /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}"
+
+# STIG time source is chrony. Purge timesyncd so its config goes too.
+# chrony was only removed above, so its STIG config is still there.
+RUN n=0; until apt-get update; do \
+      n=$((n + 1)); \
+      [ "${n}" -lt 5 ] || exit 1; \
+      echo "apt-get update failed (attempt ${n}); retrying after mirror sync" >&2; \
+      rm -rf /var/lib/apt/lists/*; \
+      sleep $((n * 5)); \
+    done \
+ && apt-get purge -y systemd-timesyncd \
+ && apt-get install -y --no-install-recommends chrony \
+ && systemctl mask systemd-timesyncd \
+ && systemctl enable chrony \
+ && rm -rf /var/lib/apt/lists/*

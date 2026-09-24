@@ -36,4 +36,26 @@ echo marker > "${tmpdir}/var/lib/extensions/kubernetes.raw"
 prepare-capi-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubuntu-24.04 --arch amd64
 [[ "$(cat "${tmpdir}/var/lib/extensions/kubernetes.raw")" == "marker" ]] || fail "no-op bounced files"
 
+[[ "$(detect_os $'ID=rhel\nVERSION_ID=\"9.4\"')" == "rhel-9" ]] || fail "rhel 9"
+
+grep -q "io.containerd.cri.v1.images" "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "containerd 2 sandbox key"
+grep -q 'sandbox = "' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "sandbox pin"
+grep -q 'conf.d' "${tmpdir}/etc/containerd/config.toml" || fail "containerd imports conf.d"
+
+log="${tmpdir}/actions.log"
+: >"${log}"
+export PREPARE_CAPI_NODE_LOG="${log}"
+prepare-capi-node-main --registry "${reg}" --kubernetes-version v1.36.5 --os ubuntu-24.04 --arch amd64
+pull_line="$(grep -n '^pull ' "${log}" | head -1 | cut -d: -f1)"
+stop_line="$(grep -n '^stop kubelet$' "${log}" | head -1 | cut -d: -f1)"
+[[ -n "${pull_line}" && -n "${stop_line}" && "${pull_line}" -lt "${stop_line}" ]] || fail "pull must happen before stop: $(cat "${log}")"
+
+prepare-capi-node-main --registry "other.example/p" --kubernetes-version v1.36.5 --os ubuntu-24.04 --arch amd64
+grep -q 'other.example/p/cri:ubuntu-24.04-amd64' "${tmpdir}/var/lib/extensions/cri.raw" || fail "registry change did not refresh cri"
+
+mkdir -p "${tmpdir}/usr/lib/kairos"
+printf '3.10.1\n' >"${tmpdir}/usr/lib/kairos/pause-tag"
+prepare-capi-node-main --registry "${reg}" --kubernetes-version v1.36.6 --os ubuntu-24.04 --arch amd64
+grep -q 'pause:3.10.1' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "pause tag from sysext file"
+
 echo "ok prepare-capi-node_test"
