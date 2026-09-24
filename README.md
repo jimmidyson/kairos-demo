@@ -24,7 +24,7 @@ Not a Kairos Kubernetes provider. Not first-boot `kubeadm init`. Bootstrap is **
 devbox shell
 ```
 
-Need Docker buildx with binfmt/qemu for the non-host architecture, a Harbor project you can push to (e.g. `harbor.eng.nutanix.com`), Ubuntu Pro token, Prism credentials, `openssl` (extension serving cert), and `python3`. `devbox shell` provides Go, clusterctl, kind, and kubectl (the lock resolves Go 1.26.5 and clusterctl 1.13.4). Step 7 installs core, kubeadm bootstrap, and kubeadm control plane at `CAPI_VERSION` (default `v1.13.6`). Image builds pass `GO_VERSION` (default 1.26.5) so the FIPS alias is the one that exists on that toolchain.
+Need binfmt/qemu for the non-host architecture, a Harbor project you can push to (e.g. `harbor.eng.nutanix.com`), Ubuntu Pro token, Prism credentials, `openssl` (extension serving cert), and `python3`. Docker 24.0.6 / BuildKit v0.11.6 commits a large `RUN --mount` as whiteouts of `/`, so the next step has no `/bin/sh`. Docker 29.8.1 / BuildKit v0.33.0 does not. The minimum in between was not found, so the check rejects anything older than that known-good pair. `KAIROS_SKIP_DOCKER_CHECK=1` skips it. `devbox shell` provides Go, clusterctl, kind, and kubectl (the lock resolves Go 1.26.5 and clusterctl 1.13.4). Step 7 installs core, kubeadm bootstrap, and kubeadm control plane at `CAPI_VERSION` (default `v1.13.6`). Image builds pass `GO_VERSION` (default 1.26.5) so the FIPS alias is the one that exists on that toolchain.
 
 On macOS, if `container` is on `PATH`, image builds use `container build` and the management cluster is `container k8s` (`KAIROS_BUILDER=auto`, `KAIROS_MGMT=auto`). Set either to `docker` or `kind` to keep that half on Docker/KIND. Multi-arch indexes are `crane index append`. Apple container refuses a Dockerfile larger than 16KiB.
 
@@ -47,7 +47,7 @@ export NUTANIX_SSH_AUTHORIZED_KEY='ssh-ed25519 AAAA...'
 export CONTROL_PLANE_ENDPOINT_IP=...   # unused VIP/IP for the workload API
 ```
 
-Optional: `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `IMAGE_SOURCE_URI` (HTTP URL Prism can pull the cloud disk from; required if that image is not already COMPLETE in Prism), `NUTANIX_CA_FILE` (PEM Prism trusts), `NUTANIX_INSECURE=1` (skip Prism TLS verify), `SSH_IDENTITY_FILE` (private key matching `NUTANIX_SSH_AUTHORIZED_KEY`; default `~/.ssh/id_ed25519` then `id_rsa`), `KAIROS_OPERATOR_REF` (default `v0.2.2`), `DESTROY_PRISM=0` (step 10 leaves the Prism image), `BASE_IMAGE` (required when `OSES` includes `rhel-9`).
+Optional: `KAIROS_SKIP_DOCKER_CHECK=1` (build on a Docker/BuildKit pair older than the only one known to work), `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `IMAGE_SOURCE_URI` (HTTP URL Prism can pull the cloud disk from; required if that image is not already COMPLETE in Prism), `NUTANIX_CA_FILE` (PEM Prism trusts), `NUTANIX_INSECURE=1` (skip Prism TLS verify), `SSH_IDENTITY_FILE` (private key matching `NUTANIX_SSH_AUTHORIZED_KEY`; default `~/.ssh/id_ed25519` then `id_rsa`), `KAIROS_OPERATOR_REF` (default `v0.2.2`), `DESTROY_PRISM=0` (step 10 leaves the Prism image), `BASE_IMAGE` (required when `OSES` includes `rhel-9`).
 
 ## Run
 

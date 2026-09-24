@@ -7,6 +7,14 @@ source "${ROOT}/scripts/lib.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+version_at_least 29.8.1 29.8.1 || fail "equal docker version"
+version_at_least 29.9.0 29.8.1 || fail "newer docker version"
+version_at_least v0.33.0 0.33.0 || fail "equal buildkit version"
+version_at_least v0.34.0 0.33.0 || fail "newer buildkit version"
+if version_at_least 24.0.6 29.8.1; then fail "docker 24 must be rejected"; fi
+if version_at_least v0.11.6 0.33.0; then fail "buildkit 0.11 must be rejected"; fi
+if version_at_least 29.8.0 29.8.1; then fail "docker 29.8.0 must be rejected"; fi
+
 out="$(require_env NOT_A_REAL_ENV 2>&1)" && fail "require_env should fail" || true
 [[ "${out}" == *"missing env: NOT_A_REAL_ENV"* ]] || fail "got: ${out}"
 
@@ -52,6 +60,10 @@ EOF
 cat >"${shim}/docker" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >>"${LOG}"
+case "$1" in
+  version) printf '%s\n' "${DOCKER_SERVER_VERSION:-29.8.1}" ;;
+  buildx) printf 'BuildKit version: %s\n' "${BUILDKIT_VERSION:-v0.33.0}" ;;
+esac
 EOF
 chmod +x "${shim}/container" "${shim}/docker"
 ctx="$(mktemp -d)"
@@ -65,6 +77,18 @@ grep -qx 'image push example.com/a:1' "${log}" || fail "container push: $(cat "$
 : >"${log}"
 LOG="${log}" PATH="${shim}:${PATH}" oci_build --builder docker --tag=example.com/a:1 "${ctx}"
 grep -qx 'build --tag example.com/a:1 '"${ctx}" "${log}" || fail "docker build args: $(cat "${log}")"
+unset _docker_buildkit_ok
+if LOG="${log}" PATH="${shim}:${PATH}" DOCKER_SERVER_VERSION=24.0.6 BUILDKIT_VERSION=v0.11.6 \
+  require_docker_buildkit; then
+  fail "docker 24 / buildkit 0.11 must be rejected"
+fi
+unset _docker_buildkit_ok
+if ! LOG="${log}" PATH="${shim}:${PATH}" KAIROS_SKIP_DOCKER_CHECK=1 \
+  DOCKER_SERVER_VERSION=24.0.6 BUILDKIT_VERSION=v0.11.6 \
+  require_docker_buildkit; then
+  fail "KAIROS_SKIP_DOCKER_CHECK=1 should allow an old engine"
+fi
+unset _docker_buildkit_ok KAIROS_SKIP_DOCKER_CHECK
 : >"${log}"
 LOG="${log}" PATH="${shim}:${PATH}" KAIROS_BUILDER=docker \
   OCI_REGISTRY=example.com OCI_REGISTRY_USERNAME=u OCI_REGISTRY_PASSWORD=p \

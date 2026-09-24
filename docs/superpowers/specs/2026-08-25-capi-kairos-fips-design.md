@@ -105,7 +105,7 @@ Harbor names (prefix = `${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}`):
 
 ### Base image
 
-Per OS × arch, Docker/buildx + kairos-init:
+Per OS × arch, Docker/buildx + kairos-init. Docker 24.0.6 / BuildKit v0.11.6 commits a large bind-mounted `RUN` as whiteouts of `/`. Docker 29.8.1 / BuildKit v0.33.0 does not. The minimum in between is unknown; the check uses that known-good pair and `KAIROS_SKIP_DOCKER_CHECK=1` skips it.
 
 - Ubuntu: Ubuntu Pro FIPS packages / USG as required for that release. `UBUNTU_PRO_TOKEN` required for Ubuntu builds.
 - Rocky 9: `fips-mode-setup --enable` (or distro-equivalent) so `/proc/sys/crypto/fips_enabled` is 1 after boot.

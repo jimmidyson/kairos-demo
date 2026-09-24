@@ -201,6 +201,73 @@ registry_image_exists() {
   crane digest "${ref}" >/dev/null 2>&1
 }
 
+# Not a known minimum. Docker 24.0.6 / BuildKit v0.11.6 commits a large
+# RUN --mount as whiteouts of /, so the next step has no /bin/sh.
+# Docker 29.8.1 / BuildKit v0.33.0 does not. Versions in between were not
+# tested. KAIROS_SKIP_DOCKER_CHECK=1 skips the check.
+MIN_DOCKER_VERSION=29.8.1
+MIN_BUILDKIT_VERSION=0.33.0
+
+# version_at_least HAVE NEED. Compares the first three numeric components.
+version_at_least() {
+  local have="$1" need="$2" IFS=. i h n
+  local -a hv nv
+  have="${have#v}"
+  need="${need#v}"
+  have="${have%%+*}"
+  need="${need%%+*}"
+  have="${have%%-*}"
+  need="${need%%-*}"
+  # shellcheck disable=SC2162
+  read -r -a hv <<<"${have}"
+  # shellcheck disable=SC2162
+  read -r -a nv <<<"${need}"
+  for i in 0 1 2; do
+    h="${hv[i]:-0}"
+    n="${nv[i]:-0}"
+    h="${h%%[!0-9]*}"
+    n="${n%%[!0-9]*}"
+    [[ -n "${h}" ]] || h=0
+    [[ -n "${n}" ]] || n=0
+    if ((10#$h > 10#$n)); then
+      return 0
+    fi
+    if ((10#$h < 10#$n)); then
+      return 1
+    fi
+  done
+  return 0
+}
+
+require_docker_buildkit() {
+  [[ -n "${_docker_buildkit_ok:-}" ]] && return 0
+  if [[ "${KAIROS_SKIP_DOCKER_CHECK:-}" == 1 ]]; then
+    printf 'skipping Docker/BuildKit version check (KAIROS_SKIP_DOCKER_CHECK=1). Known bad: Docker 24.0.6 / BuildKit v0.11.6. Known good: %s / v%s. The minimum in between is unknown.\n' \
+      "${MIN_DOCKER_VERSION}" "${MIN_BUILDKIT_VERSION}" >&2
+    _docker_buildkit_ok=1
+    return 0
+  fi
+  local docker_ver buildkit_ver
+  docker_ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null)" || {
+    printf 'docker version failed. Known good is Docker %s / BuildKit v%s; the real minimum is unknown. Set KAIROS_SKIP_DOCKER_CHECK=1 to build anyway.\n' \
+      "${MIN_DOCKER_VERSION}" "${MIN_BUILDKIT_VERSION}" >&2
+    return 2
+  }
+  buildkit_ver="$(docker buildx inspect 2>/dev/null | awk '/BuildKit version:/ {print $3; exit}')"
+  if [[ -z "${buildkit_ver}" ]]; then
+    printf 'could not read BuildKit version from docker buildx inspect. Known good is v%s; the real minimum is unknown. Set KAIROS_SKIP_DOCKER_CHECK=1 to build anyway.\n' \
+      "${MIN_BUILDKIT_VERSION}" >&2
+    return 2
+  fi
+  if ! version_at_least "${docker_ver}" "${MIN_DOCKER_VERSION}" \
+    || ! version_at_least "${buildkit_ver}" "${MIN_BUILDKIT_VERSION}"; then
+    printf 'docker %s / BuildKit %s is below the only pair known to work (Docker %s / BuildKit v%s). Docker 24.0.6 / BuildKit v0.11.6 whiteouts a large RUN --mount. The minimum in between is unknown. Set KAIROS_SKIP_DOCKER_CHECK=1 to build anyway.\n' \
+      "${docker_ver}" "${buildkit_ver}" "${MIN_DOCKER_VERSION}" "${MIN_BUILDKIT_VERSION}" >&2
+    return 2
+  fi
+  _docker_buildkit_ok=1
+}
+
 # Image build. --push uses buildx on Docker and `container image push` on Apple container.
 # A local build (no --push) is loaded into the engine `kind load` or `container k8s load-image` reads.
 # ponytail: Apple container rejects Dockerfiles over 16KiB (container#735). These Dockerfiles are smaller.
@@ -236,6 +303,9 @@ oci_build() {
   fi
   if [[ -z "${builder}" ]]; then
     builder="$(builder_name)"
+  fi
+  if [[ "${builder}" == docker ]]; then
+    require_docker_buildkit
   fi
   printf '  build via %s %s\n' "${builder}" "${tag}" >&2
   local cmd=() a

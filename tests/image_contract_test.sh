@@ -45,7 +45,10 @@ order_before() {
 for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   grep -q 'COPY --from=kairos-init' "${ROOT}/${df}" && fail "${df}: kairos-init must be mounted, not copied"
   grep -q 'COPY image/harden-' "${ROOT}/${df}" && fail "${df}: harden script must be mounted, not copied"
+  grep -q 'source=image/harden-' "${ROOT}/${df}" && fail "${df}: bind-mount image/, not the harden script file"
+  grep -q 'source=image,target=/mnt/image' "${ROOT}/${df}" || fail "${df}: harden script must be a directory bind mount"
   grep -q 'type=bind,from=kairos-init' "${ROOT}/${df}" || fail "${df}: kairos-init must be a bind mount"
+  grep -q -- '--skip-step' "${ROOT}/${df}" && fail "${df}: install is one kairos-init command"
   order_before "${ROOT}/${df}" '-s install -m' 'harden-'
   order_before "${ROOT}/${df}" 'harden-' '-s init -m'
   order_before "${ROOT}/${df}" 'prepare-capi-node' '-s init -m'

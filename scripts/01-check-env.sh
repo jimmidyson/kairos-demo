@@ -9,6 +9,9 @@ step_start 1 "Check environment and registry login" \
   "registry login ${OCI_REGISTRY:-<OCI_REGISTRY>}"
 
 require_factory_env
+if [[ "$(builder_name)" == docker ]]; then
+  require_docker_buildkit
+fi
 harbor_login
 step_ok
 next_step 2

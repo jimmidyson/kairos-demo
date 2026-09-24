@@ -11,13 +11,16 @@ FROM ${BASE_IMAGE} AS base-kairos
 ARG VERSION
 ARG MODEL
 # Packages and FIPS cmdline have to land before -s init builds the UKI.
-# The binary is mounted from the kairos-init stage so it is not copied into a layer.
+# The binary is mounted so it is not copied into a layer.
+# Docker 24.0.6 / BuildKit v0.11.6 commits this as whiteouts of /.
+# 29.8.1 / v0.33.0 does not. The minimum in between is unknown.
 RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
     /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}"
 
-RUN --mount=type=bind,source=image/harden-ubuntu.sh,target=/tmp/harden-ubuntu.sh \
+# Mount the directory so the script is not stored in a layer.
+RUN --mount=type=bind,source=image,target=/mnt/image \
     --mount=type=secret,id=ubuntu-pro-token,target=/run/secrets/ubuntu-pro-token \
-    bash /tmp/harden-ubuntu.sh /run/secrets/ubuntu-pro-token
+    ["/mnt/image/harden-ubuntu.sh", "/run/secrets/ubuntu-pro-token"]
 
 ARG TARGETARCH
 ARG CRANE_VERSION=0.20.6
