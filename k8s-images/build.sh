@@ -15,6 +15,10 @@ K8S_VERSION="${1:?kubernetes version e.g. v1.36.4}"
 PREFIX="$(image_prefix)"
 WORKDIR="${ROOT}/build/k8s-images/${K8S_VERSION}"
 mkdir -p "${WORKDIR}"
+# /tmp is a small tmpfs on some hosts. Go compile temps land there by default
+# and a Kubernetes build exceeds it while the home disk still has room.
+export GOTMPDIR="${WORKDIR}/gotmp"
+mkdir -p "${GOTMPDIR}"
 
 apply_fips_env() {
   local govfile="$1"
@@ -37,51 +41,73 @@ clone() {
   fi
 }
 
-build_k8s_bin() {
+k8s_out() {
   local bin="$1" arch="$2"
-  local src="${WORKDIR}/kubernetes"
+  printf '%s\n' "${WORKDIR}/kubernetes/_output/local/bin/linux/${arch}/${bin}"
+}
+
+# One make for every kubeadm Kubernetes binary. A per-binary make prints only
+# the first target and, on failure, aborts the image loop with no message.
+build_k8s_bins() {
+  local arch="$1"
+  shift
+  local src="${WORKDIR}/kubernetes" bin
   clone https://github.com/kubernetes/kubernetes.git "${src}" "${K8S_VERSION}"
   apply_fips_env "${src}/.go-version"
   export GOARCH="${arch}"
-  (cd "${src}" && make "${bin}" KUBE_BUILD_PLATFORMS="linux/${arch}")
-  local binpath="${src}/_output/local/go/bin/linux_${arch}/${bin}"
-  if [[ ! -x "${binpath}" ]]; then
-    binpath="${src}/_output/bin/${bin}"
+  printf 'building %s for linux/%s\n' "$*" "${arch}" >&2
+  if ! (cd "${src}" && make "$@" KUBE_BUILD_PLATFORMS="linux/${arch}") </dev/null; then
+    printf 'make failed for linux/%s\n' "${arch}" >&2
+    return 1
   fi
-  printf '%s\n' "${binpath}"
+  for bin in "$@"; do
+    if [[ ! -x "$(k8s_out "${bin}" "${arch}")" ]]; then
+      printf 'missing %s\n' "$(k8s_out "${bin}" "${arch}")" >&2
+      return 1
+    fi
+  done
 }
 
 build_etcd() {
   local tag="$1" arch="$2"
   local src="${WORKDIR}/etcd"
-  clone https://github.com/etcd-io/etcd.git "${src}" "$(git_ref_for_tag "${tag}")"
+  # A failed clone must return. This function runs in a command substitution,
+  # where a failing command does not stop the script.
+  clone https://github.com/etcd-io/etcd.git "${src}" "$(etcd_git_ref "${tag}")" || return 1
   apply_fips_env "${src}/.go-version"
   export GOARCH="${arch}"
   if [[ ! -f "${src}/.go-version" ]]; then
     enable_fips_go ""
     export CGO_ENABLED=0 GOOS=linux GOARCH="${arch}"
   fi
-  (cd "${src}" && go build -o "${WORKDIR}/etcd-${arch}" ./cmd/etcd)
-  printf '%s\n' "${WORKDIR}/etcd-${arch}"
+  mkdir -p "${WORKDIR}/bin"
+  # server/ is its own module. Not ${WORKDIR}/etcd-${arch}: that path is the image context.
+  (cd "${src}/server" && go build -o "${WORKDIR}/bin/etcd-${arch}" ./etcdmain) </dev/null || return 1
+  printf '%s\n' "${WORKDIR}/bin/etcd-${arch}"
 }
 
 build_coredns() {
   local tag="$1" arch="$2"
   local src="${WORKDIR}/coredns"
-  clone https://github.com/coredns/coredns.git "${src}" "$(git_ref_for_tag "${tag}")"
+  clone https://github.com/coredns/coredns.git "${src}" "$(git_ref_for_tag "${tag}")" || return 1
   apply_fips_env "${src}/.go-version"
   export GOARCH="${arch}"
   if [[ ! -f "${src}/.go-version" ]]; then
     enable_fips_go ""
     export CGO_ENABLED=0 GOOS=linux GOARCH="${arch}"
   fi
-  (cd "${src}" && go build -o "${WORKDIR}/coredns-${arch}" .)
-  printf '%s\n' "${WORKDIR}/coredns-${arch}"
+  mkdir -p "${WORKDIR}/bin"
+  # Not ${WORKDIR}/coredns-${arch}: that path is the image context directory.
+  (cd "${src}" && go build -o "${WORKDIR}/bin/coredns-${arch}" .) </dev/null || return 1
+  printf '%s\n' "${WORKDIR}/bin/coredns-${arch}"
 }
 
 pack_and_push() {
   local ref="$1" binpath="$2" binname="$3" arch="$4"
   local ctx="${WORKDIR}/${binname}-${arch}"
+  printf 'packing %s (%s)\n' "${ref}" "${arch}" >&2
+  # A previous build may have left a binary at this path. mkdir then fails with "File exists".
+  rm -rf "${ctx}"
   mkdir -p "${ctx}"
   cp "${binpath}" "${ctx}/${binname}"
   cat >"${ctx}/Dockerfile" <<EOF
@@ -126,7 +152,17 @@ main() {
   pause="$(printf '%s\n' "${list}" | parse_image_list "${PREFIX}" | pause_tag_from_list)"
   printf '%s\n' "${pause}" >"${ROOT}/build/pause-tag-${K8S_VERSION}"
 
-  while IFS=$'\t' read -r name tag; do
+  local parsed="${ROOT}/build/images-parsed-${K8S_VERSION}.txt" line
+  local -a items=()
+  local built_k8s=" "
+  printf '%s\n' "${list}" | parse_image_list "${PREFIX}" >"${parsed}"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    items+=("${line}")
+  done <"${parsed}"
+
+  for line in "${items[@]}"; do
+    name="${line%%$'\t'*}"
+    tag="${line#*$'\t'}"
     [[ -n "${name}" ]] || continue
     ref="${PREFIX}/${name}:${tag}"
     bin="${name##*/}"
@@ -137,9 +173,15 @@ main() {
       kube-apiserver | kube-controller-manager | kube-scheduler | kube-proxy | etcd | coredns)
         for arch in ${ARCHES}; do
           case "${bin}" in
-            etcd) binpath="$(build_etcd "${tag}" "${arch}")" ;;
-            coredns) binpath="$(build_coredns "${tag}" "${arch}")" ;;
-            *) binpath="$(build_k8s_bin "${bin}" "${arch}")" ;;
+            etcd) binpath="$(build_etcd "${tag}" "${arch}")" || exit 1 ;;
+            coredns) binpath="$(build_coredns "${tag}" "${arch}")" || exit 1 ;;
+            *)
+              if [[ "${built_k8s}" != *" ${arch} "* ]]; then
+                build_k8s_bins "${arch}" kube-apiserver kube-controller-manager kube-scheduler kube-proxy
+                built_k8s+="${arch} "
+              fi
+              binpath="$(k8s_out "${bin}" "${arch}")"
+              ;;
           esac
           pack_and_push "${ref}" "${binpath}" "${bin}" "${arch}"
         done
@@ -150,7 +192,7 @@ main() {
         exit 1
         ;;
     esac
-  done < <(printf '%s\n' "${list}" | parse_image_list "${PREFIX}")
+  done
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

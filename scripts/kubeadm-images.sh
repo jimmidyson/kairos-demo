@@ -52,6 +52,16 @@ parse_image_list() {
   done
 }
 
+# kubeadm tags the etcd image <version>-<k8s revision> (3.6.8-0). The etcd tag is v3.6.8.
+etcd_git_ref() {
+  local tag="$1"
+  tag="${tag%%-[0-9]*}"
+  case "${tag}" in
+    v*) printf '%s\n' "${tag}" ;;
+    *) printf 'v%s\n' "${tag}" ;;
+  esac
+}
+
 pause_tag_from_list() {
   local name tag
   while IFS=$'\t' read -r name tag || [[ -n "${name}" ]]; do

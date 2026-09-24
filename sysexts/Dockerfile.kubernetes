@@ -16,9 +16,9 @@ WORKDIR /src/kubernetes
 RUN eval "$(bash /tmp/enable-fips-go.sh /src/kubernetes/.go-version)" \
  && make kubeadm kubelet kubectl KUBE_BUILD_PLATFORMS="linux/${TARGETARCH}"
 RUN mkdir -p /out/usr/bin /out/usr/lib/systemd/system/kubelet.service.d /out/usr/lib/kairos && \
-    cp _output/local/go/bin/linux_${TARGETARCH}/kubeadm /out/usr/bin/ 2>/dev/null || cp _output/bin/kubeadm /out/usr/bin/ && \
-    cp _output/local/go/bin/linux_${TARGETARCH}/kubelet /out/usr/bin/ 2>/dev/null || cp _output/bin/kubelet /out/usr/bin/ && \
-    cp _output/local/go/bin/linux_${TARGETARCH}/kubectl /out/usr/bin/ 2>/dev/null || cp _output/bin/kubectl /out/usr/bin/ && \
+    cp "_output/local/bin/linux/${TARGETARCH}/kubeadm" /out/usr/bin/ && \
+    cp "_output/local/bin/linux/${TARGETARCH}/kubelet" /out/usr/bin/ && \
+    cp "_output/local/bin/linux/${TARGETARCH}/kubectl" /out/usr/bin/ && \
     printf '%s\n' "${PAUSE_TAG}" >/out/usr/lib/kairos/pause-tag
 RUN curl -fsSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/krel/templates/latest/kubelet/kubelet.service" \
       > /out/usr/lib/systemd/system/kubelet.service && \

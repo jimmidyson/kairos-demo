@@ -89,6 +89,31 @@ if ! LOG="${log}" PATH="${shim}:${PATH}" KAIROS_SKIP_DOCKER_CHECK=1 \
   fail "KAIROS_SKIP_DOCKER_CHECK=1 should allow an old engine"
 fi
 unset _docker_buildkit_ok KAIROS_SKIP_DOCKER_CHECK
+cat >"${shim}/docker" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"${LOG}"
+if [[ "$1" == buildx ]]; then
+  echo "buildx exploded" >&2
+  exit 255
+fi
+printf '%s\n' "29.8.1"
+EOF
+chmod +x "${shim}/docker"
+: >"${log}"
+if LOG="${log}" PATH="${shim}:${PATH}" require_docker_buildkit >"${log}.out" 2>"${log}.err"; then
+  fail "buildx inspect exit 255 must fail the check"
+fi
+grep -q 'buildx exploded' "${log}.err" || fail "inspect failure must be shown: $(cat "${log}.err")"
+unset _docker_buildkit_ok
+cat >"${shim}/docker" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"${LOG}"
+case "$1" in
+  version) printf '%s\n' "${DOCKER_SERVER_VERSION:-29.8.1}" ;;
+  buildx) printf 'BuildKit version: %s\n' "${BUILDKIT_VERSION:-v0.33.0}" ;;
+esac
+EOF
+chmod +x "${shim}/docker"
 : >"${log}"
 LOG="${log}" PATH="${shim}:${PATH}" KAIROS_BUILDER=docker \
   OCI_REGISTRY=example.com OCI_REGISTRY_USERNAME=u OCI_REGISTRY_PASSWORD=p \

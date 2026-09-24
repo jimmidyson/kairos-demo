@@ -247,13 +247,22 @@ require_docker_buildkit() {
     _docker_buildkit_ok=1
     return 0
   fi
-  local docker_ver buildkit_ver
+  local docker_ver buildkit_ver inspect
   docker_ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null)" || {
     printf 'docker version failed. Known good is Docker %s / BuildKit v%s; the real minimum is unknown. Set KAIROS_SKIP_DOCKER_CHECK=1 to build anyway.\n' \
       "${MIN_DOCKER_VERSION}" "${MIN_BUILDKIT_VERSION}" >&2
     return 2
   }
-  buildkit_ver="$(docker buildx inspect 2>/dev/null | awk '/BuildKit version:/ {print $3; exit}')"
+  # Capture all of inspect before parsing. Piping it to awk and exiting early
+  # SIGPIPEs buildx (exit 255) and pipefail aborts the build with no message.
+  if ! inspect="$(docker buildx inspect 2>&1)"; then
+    printf 'docker buildx inspect failed. Known good is BuildKit v%s; the real minimum is unknown. Set KAIROS_SKIP_DOCKER_CHECK=1 to build anyway.\n%s\n' \
+      "${MIN_BUILDKIT_VERSION}" "${inspect}" >&2
+    return 2
+  fi
+  buildkit_ver="${inspect#*BuildKit version: }"
+  buildkit_ver="${buildkit_ver%%$'\n'*}"
+  buildkit_ver="${buildkit_ver%% *}"
   if [[ -z "${buildkit_ver}" ]]; then
     printf 'could not read BuildKit version from docker buildx inspect. Known good is v%s; the real minimum is unknown. Set KAIROS_SKIP_DOCKER_CHECK=1 to build anyway.\n' \
       "${MIN_BUILDKIT_VERSION}" >&2

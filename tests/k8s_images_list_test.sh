@@ -28,10 +28,19 @@ printf '%s\n' "${parsed}" | grep -q $'^etcd\t3.6.5$' || fail "etcd tag must be t
 printf '%s\n' "${parsed}" | grep -q $'^coredns/coredns\tv1.12.1$' || fail "coredns path: ${parsed}"
 tag="$(printf '%s\n' "${parsed}" | pause_tag_from_list)"
 [[ "${tag}" == "3.10.1" ]] || fail "pause tag ${tag}"
+[[ "$(etcd_git_ref 3.6.8-0)" == "v3.6.8" ]] || fail "etcd image revision: $(etcd_git_ref 3.6.8-0)"
+[[ "$(etcd_git_ref 3.5.21-0)" == "v3.5.21" ]] || fail "etcd image revision: $(etcd_git_ref 3.5.21-0)"
+[[ "$(etcd_git_ref v3.6.8)" == "v3.6.8" ]] || fail "etcd tag already versioned: $(etcd_git_ref v3.6.8)"
 
 grep -q 'kubeadm_image_list' "${ROOT}/k8s-images/build.sh" || fail "build.sh must ask kubeadm for the image list"
 grep -q 'crane index append' "${ROOT}/k8s-images/build.sh" || fail "build.sh must publish a manifest list with crane"
 grep -q 'crane copy' "${ROOT}/k8s-images/build.sh" || fail "pause is a retag"
+grep -q 'GOTMPDIR=' "${ROOT}/k8s-images/build.sh" || fail "go compile temps must not use the small /tmp"
+grep -q '_output/local/bin/linux/' "${ROOT}/k8s-images/build.sh" || fail "kube binaries come from the platform output dir"
+grep -q 'build_k8s_bins "${arch}" kube-apiserver kube-controller-manager kube-scheduler kube-proxy' "${ROOT}/k8s-images/build.sh" || fail "one make builds every kubeadm Kubernetes binary"
+grep -q 'WORKDIR}/bin/etcd-${arch}' "${ROOT}/k8s-images/build.sh" || fail "etcd binary must not be the image context path"
+grep -q 'WORKDIR}/bin/coredns-${arch}' "${ROOT}/k8s-images/build.sh" || fail "coredns binary must not be the image context path"
+grep -q 'rm -rf "${ctx}"' "${ROOT}/k8s-images/build.sh" || fail "image context must replace a leftover file"
 
 enable_fips_go 1.25.4
 [[ "${GOFIPS140}" == "certified" ]] || fail "GOFIPS140"
