@@ -48,6 +48,10 @@ rendered_cloud="$(envsubst '${NUTANIX_SSH_AUTHORIZED_KEY}' <"${ROOT}/image/cloud
 for os in ${OSES}; do
   for arch in ${ARCHES}; do
     printf '  OSArtifact cloud-%s-%s\n' "${os}" "${arch}"
+    # OSArtifact reconciliation is not an imperative rebuild: an unchanged
+    # Ready resource reuses its completed build. Delete it first so rerunning
+    # step 5 always creates a fresh disk and exporter job.
+    kubectl delete "osartifact/cloud-${os}-${arch}" --ignore-not-found --wait=true
     OS="${os}" ARCH="${arch}" BASE_IMAGE="$(base_image "${os}" "${arch}")" \
       CLOUD_CONFIG="$(printf '%s\n' "${rendered_cloud}" | sed 's/^/    /')" \
       envsubst '${OS} ${ARCH} ${BASE_IMAGE} ${CLOUD_CONFIG}' <"${ROOT}/osartifact/cloud-image.yaml.tpl" \

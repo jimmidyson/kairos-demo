@@ -34,10 +34,10 @@ spec:
                 - |
                   NGINX_URL="${NGINX_URL:-http://kairos-operator-nginx}"
                   for f in /artifacts/*; do
-                    [ -f "$f" ] || continue
-                    base=$(basename "$f")
-                    echo "Uploading $base"
-                    curl -fsSL -T "$f" "$NGINX_URL/$base" || exit 1
+                    [ -f "$$f" ] || continue
+                    base=$(basename "$$f")
+                    echo "Uploading $$base"
+                    curl -fsSL -T "$$f" "$$NGINX_URL/$$base" || exit 1
                   done
               env:
                 - name: NGINX_URL
