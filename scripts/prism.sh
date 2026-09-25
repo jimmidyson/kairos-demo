@@ -144,11 +144,11 @@ for item in items:
 }
 
 prism_create_image() {
-  local name="$1" key="$2" body task
+  local name="$1" key="$2" request_id="${3:-}" body task
   body="$(NAME="${name}" KEY="${key}" python3 -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"type":"DISK_IMAGE","source":{"$objectType":"vmm.v4.content.ObjectsLiteSource","key":os.environ["KEY"]}}))')"
   printf '  creating Prism image %s from object %s\n' "${name}" "${key}" >&2
   printf '  image request: %s\n' "${body}" >&2
-  task="$(prism_curl -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' "$(prism_v4_base)/content/images" -d "${body}" \
+  task="$(prism_curl -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' ${request_id:+-H "NTNX-Request-Id: $request_id"} "$(prism_v4_base)/content/images" -d "${body}" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("data") or {}).get("value",d.get("data") or {}); print(v.get("extId") or "")')"
   [[ -n "${task}" ]] || return 1
   printf '  image creation task: %s\n' "${task}" >&2
@@ -226,8 +226,11 @@ prism_ensure_image() {
   fi
   local file="${FACTORY_ROOT}/build/ubuntu-24.04-amd64.raw"
   local key="${NUTANIX_OBJECTS_KEY:-kairos/${name}.raw}"
+  local digest req_id
+  digest="$(sha256sum "${file}" | awk '{print $1}')"
+  req_id="$(python3 -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))' "${digest}")"
   prism_upload_object "${file}" "${key}" || return 1
-  uuid="$(prism_create_image "${name}" "${key}")"
+  uuid="$(prism_create_image "${name}" "${key}" "${req_id}")"
   [[ -n "${uuid}" ]] || return 1
   prism_wait_image "${uuid}"
 }
