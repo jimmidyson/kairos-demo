@@ -63,10 +63,18 @@ PY
     cmd+=(--cacert "${NUTANIX_CA_FILE}")
   fi
   cmd+=("$@")
-  local rc=0
-  "${cmd[@]}" || rc=$?
+  local tmp_out rc=0
+  tmp_out="$(mktemp)"
+  "${cmd[@]}" >"$tmp_out" || rc=$?
   rm -f "${cfg}"
-  return "${rc}"
+  if (( rc != 0 )); then
+    cat "$tmp_out" >&2
+    rm -f "$tmp_out"
+    return "${rc:-1}"
+  fi
+  cat "$tmp_out"
+  rm -f "$tmp_out"
+  return 0
 }
 
 # Upload a local disk into Prism Objects using its S3-compatible API.
