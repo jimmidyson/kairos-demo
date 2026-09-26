@@ -11,7 +11,7 @@ step_start 7 "clusterctl init CAPX + CAAPH + in-place Runtime Extension" \
 require_factory_env
 export KUBECONFIG="${ROOT}/kairos-kind.kubeconfig"
 export NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME="${NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME:-kairos-ubuntu-24.04-amd64}"
-export EXP_IN_PLACE_UPDATES=true
+export EXP_IN_PLACE_UPDATES=true CLUSTER_TOPOLOGY=true EXP_RUNTIME_SDK=true EXP_MACHINE_TAINT_PROPAGATION=true
 
 if ! mgmt_exists "${KAIROS_KIND_CLUSTER_NAME}"; then
   step_fail "management cluster ${KAIROS_KIND_CLUSTER_NAME} is missing; run step 5"
@@ -25,37 +25,6 @@ clusterctl init \
   --control-plane "kubeadm:${CAPI_VERSION}" \
   --infrastructure nutanix \
   --addon helm
-
-gate_patch="$(python3 - <<'PY'
-import json, subprocess
-raw = subprocess.check_output([
-    "kubectl", "-n", "capi-system", "get", "deploy", "capi-controller-manager", "-o", "json"])
-dep = json.loads(raw)
-args = dep["spec"]["template"]["spec"]["containers"][0].get("args") or []
-patch = []
-for i, arg in enumerate(args):
-    if arg.startswith("--feature-gates="):
-        gates = arg.split("=", 1)[1]
-        if "InPlaceUpdates=true" not in gates.split(","):
-            gates = (gates + "," if gates else "") + "InPlaceUpdates=true"
-            patch.append({
-                "op": "replace",
-                "path": "/spec/template/spec/containers/0/args/%d" % i,
-                "value": "--feature-gates=" + gates,
-            })
-        break
-else:
-    patch.append({
-        "op": "add",
-        "path": "/spec/template/spec/containers/0/args/-",
-        "value": "--feature-gates=InPlaceUpdates=true",
-    })
-print(json.dumps(patch))
-PY
-)"
-if [[ "${gate_patch}" != "[]" ]]; then
-  kubectl -n capi-system patch deploy capi-controller-manager --type=json -p "${gate_patch}"
-fi
 
 ssh_key="${SSH_IDENTITY_FILE:-}"
 if [[ -z "${ssh_key}" ]]; then
@@ -110,7 +79,7 @@ envsubst '${CAPI_EXTENSION_IMAGE} ${IMAGE_PREFIX}' <"${ROOT}/capi/inplace-extens
 
 ca_bundle="$(kubectl -n kairos-inplace-system get secret inplace-tls -o jsonpath='{.data.tls\.crt}')"
 cat <<EOF | kubectl apply -f -
-apiVersion: runtime.cluster.x-k8s.io/v1alpha1
+apiVersion: runtime.cluster.x-k8s.io/v1beta2
 kind: ExtensionConfig
 metadata:
   name: kairos-inplace

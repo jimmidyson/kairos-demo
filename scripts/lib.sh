@@ -100,6 +100,24 @@ next_step() {
 
 require_factory_env() {
   local v
+  # Generate extension SSH key if not provided
+  if [[ -z "${SSH_IDENTITY_FILE:-}" ]]; then
+    local key_dir="${FACTORY_ROOT}/build"
+    mkdir -p "${key_dir}"
+    local key_path="${key_dir}/extension-ssh-key"
+    local pub_path="${key_path}.pub"
+    if [[ ! -f "${key_path}" ]]; then
+      ssh-keygen -t ed25519 -f "${key_path}" -N "" -C "extension" >/dev/null 2>&1 || true
+    fi
+    export SSH_IDENTITY_FILE="${key_path}"
+    local pub_key=""
+    if [[ -f "${pub_path}" ]]; then
+      pub_key="$(cat "${pub_path}")"
+    fi
+    if [[ -z "${NUTANIX_SSH_AUTHORIZED_KEY:-}" && -n "${pub_key}" ]]; then
+      export NUTANIX_SSH_AUTHORIZED_KEY="${pub_key}"
+    fi
+  fi
   for v in \
     OCI_REGISTRY OCI_REPOSITORY_PREFIX OCI_REGISTRY_USERNAME OCI_REGISTRY_PASSWORD \
     UBUNTU_PRO_TOKEN \
