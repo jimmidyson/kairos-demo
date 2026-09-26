@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Apply the known CRI + kubernetes sysext set so CABPK can run kubeadm.
-# Usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--os OS] [--arch ARCH]
+# Usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--os OS] [--arch ARCH] [--pause-tag TAG]
 set -euo pipefail
 
 EXTENSIONS_REL="var/lib/extensions"
@@ -9,18 +9,24 @@ PAUSE_IMAGE_TAG="${PAUSE_IMAGE_TAG:-3.10}"
 
 detect_os() {
   local text="${1:-$(cat /etc/os-release 2>/dev/null || true)}"
-  local id="" version=""
-  eval "$(printf '%s\n' "${text}" | grep -E '^(ID|VERSION_ID)=' | sed 's/^/local /')"
-  id="${ID:-}"
-  version="${VERSION_ID:-}"
+  local id="" version="" line
+  while IFS= read -r line; do
+    case "${line}" in
+      ID=*) id="${line#ID=}" ;;
+      VERSION_ID=*) version="${line#VERSION_ID=}" ;;
+    esac
+  done <<<"${text}"
   id="${id//\"/}"
   version="${version//\"/}"
   case "${id}" in
     ubuntu)
       printf 'ubuntu-%s\n' "${version}"
       ;;
-    rocky|rocky_linux)
+    rocky | rocky_linux)
       printf 'rocky-%s\n' "${version%%.*}"
+      ;;
+    rhel)
+      printf 'rhel-%s\n' "${version%%.*}"
       ;;
     *)
       printf 'unsupported os-release ID=%s VERSION_ID=%s\n' "${id}" "${version}" >&2
@@ -32,8 +38,8 @@ detect_os() {
 detect_arch() {
   local m="${1:-$(uname -m)}"
   case "${m}" in
-    x86_64|amd64) printf 'amd64\n' ;;
-    aarch64|arm64) printf 'arm64\n' ;;
+    x86_64 | amd64) printf 'amd64\n' ;;
+    aarch64 | arm64) printf 'arm64\n' ;;
     *)
       printf 'unsupported arch: %s\n' "${m}" >&2
       return 1
@@ -54,6 +60,14 @@ set_file_contents() {
   printf 'registry=%s\nos=%s\narch=%s\nkubernetes=%s\n' "${registry}" "${os}" "${arch}" "${ver}"
 }
 
+_set_field() {
+  local setfile="$1" key="$2" line
+  [[ -f "${setfile}" ]] || return 1
+  line="$(grep -E "^${key}=" "${setfile}" || true)"
+  [[ -n "${line}" ]] || return 1
+  printf '%s\n' "${line#"${key}="}"
+}
+
 already_applied() {
   local setfile="$1" registry="$2" os="$3" arch="$4" ver="$5"
   [[ -f "${setfile}" ]] || return 1
@@ -62,6 +76,11 @@ already_applied() {
 
 _root() {
   printf '%s\n' "${PREPARE_CAPI_NODE_ROOT:-}"
+}
+
+_log() {
+  [[ -n "${PREPARE_CAPI_NODE_LOG:-}" ]] || return 0
+  printf '%s\n' "$1" >>"${PREPARE_CAPI_NODE_LOG}"
 }
 
 _extensions_dir() {
@@ -76,14 +95,17 @@ _extensions_dir() {
 
 _pull_sysext() {
   local ref="$1" dest="$2"
+  _log "pull ${ref}"
   if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
-    # Test/fake root: no registry, just a placeholder blob.
     printf 'test-sysext %s\n' "${ref}" >"${dest}"
     return 0
   fi
   local tmp
   tmp="$(mktemp -d)"
-  crane export "${ref}" - | tar -x -C "${tmp}" extension.raw
+  if ! crane export "${ref}" - | tar -x -C "${tmp}" extension.raw; then
+    rm -rf "${tmp}"
+    return 1
+  fi
   mv "${tmp}/extension.raw" "${dest}"
   rm -rf "${tmp}"
 }
@@ -95,52 +117,91 @@ _refresh_sysext() {
   systemd-sysext refresh
 }
 
+_read_pause_tag() {
+  local f r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    f="${r}/usr/lib/kairos/pause-tag"
+  else
+    f=/usr/lib/kairos/pause-tag
+  fi
+  if [[ -f "${f}" ]]; then
+    PAUSE_IMAGE_TAG="$(tr -d '[:space:]' <"${f}")"
+  fi
+}
+
 _sandbox_image() {
   local registry="$1"
   printf '%s/pause:%s\n' "${registry}" "${PAUSE_IMAGE_TAG}"
 }
 
-_write_containerd_sandbox() {
-  local registry="$1"
-  if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
-    mkdir -p "$(_root)/etc/containerd"
-    printf 'sandbox_image = "%s"\n' "$(_sandbox_image "${registry}")" >"$(_root)/etc/containerd/capi-sandbox.toml"
-    return 0
+_containerd_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/etc/containerd\n' "${r}"
+  else
+    printf '/etc/containerd\n'
   fi
-  mkdir -p /etc/containerd
-  cat >/etc/containerd/conf.d/capi-sandbox.toml <<EOF
-version = 2
-[plugins."io.containerd.grpc.v1.cri"]
-  sandbox_image = "$(_sandbox_image "${registry}")"
+}
+
+_write_containerd_sandbox() {
+  local registry="$1" dir img
+  dir="$(_containerd_dir)"
+  img="$(_sandbox_image "${registry}")"
+  mkdir -p "${dir}/conf.d"
+  if [[ -z "${PREPARE_CAPI_NODE_ROOT:-}" ]] && command -v containerd >/dev/null 2>&1; then
+    containerd config default >"${dir}/config.toml"
+  fi
+  if [[ ! -f "${dir}/config.toml" ]] || ! grep -q 'conf.d' "${dir}/config.toml"; then
+    cat >"${dir}/config.toml" <<'EOF'
+version = 3
+imports = ["/etc/containerd/conf.d/*.toml"]
+EOF
+  fi
+  cat >"${dir}/conf.d/capi-sandbox.toml" <<EOF
+version = 3
+
+[plugins.'io.containerd.cri.v1.images'.pinned_images]
+  sandbox = "${img}"
 EOF
 }
 
 _stop_kubelet() {
+  _log "stop kubelet"
   [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]] && return 0
   systemctl stop kubelet 2>/dev/null || true
 }
 
 _stop_containerd() {
+  _log "stop containerd"
   [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]] && return 0
   systemctl stop containerd 2>/dev/null || true
 }
 
 _start_runtime() {
+  _log "start runtime"
   [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]] && return 0
   systemctl enable --now containerd
   systemctl enable --now kubelet
 }
 
+_restart_if_stopped() {
+  [[ "${_stopped:-0}" -eq 1 ]] || return 0
+  _start_runtime || true
+}
+
 prepare-capi-node-main() {
-  local registry="" ver="" os="" arch=""
+  local registry="" ver="" os="" arch="" pause_flag=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --registry) registry="${2:-}"; shift 2 ;;
       --kubernetes-version) ver="${2:-}"; shift 2 ;;
       --os) os="${2:-}"; shift 2 ;;
       --arch) arch="${2:-}"; shift 2 ;;
-      -h|--help)
-        printf 'usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--os OS] [--arch ARCH]\n' >&2
+      --pause-tag) pause_flag="${2:-}"; shift 2 ;;
+      -h | --help)
+        printf 'usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--os OS] [--arch ARCH] [--pause-tag TAG]\n' >&2
         return 2
         ;;
       *)
@@ -149,6 +210,9 @@ prepare-capi-node-main() {
         ;;
     esac
   done
+  if [[ -n "${pause_flag}" ]]; then
+    PAUSE_IMAGE_TAG="${pause_flag}"
+  fi
   if [[ -z "${registry}" ]]; then
     printf 'missing --registry (imageRepository prefix, e.g. harbor.example.com/project)\n' >&2
     return 2
@@ -176,23 +240,51 @@ prepare-capi-node-main() {
     return 0
   fi
 
-  local cri_changing=0
-  if [[ ! -f "${setfile}" ]] || ! grep -q "^os=${os}$" "${setfile}" || ! grep -q "^arch=${arch}$" "${setfile}"; then
+  local cri_changing=0 prev_reg prev_os prev_arch
+  prev_reg="$(_set_field "${setfile}" registry || true)"
+  prev_os="$(_set_field "${setfile}" os || true)"
+  prev_arch="$(_set_field "${setfile}" arch || true)"
+  if [[ ! -f "${setfile}" || "${prev_reg}" != "${registry}" || "${prev_os}" != "${os}" || "${prev_arch}" != "${arch}" ]]; then
     cri_changing=1
   fi
 
+  # Pull beside the live files before stopping anything. A failed pull must
+  # leave kubelet running.
+  if [[ "${cri_changing}" -eq 1 ]]; then
+    _pull_sysext "$(cri_ref "${registry}" "${os}" "${arch}")" "${cri_dest}.new" || return 1
+  fi
+  _pull_sysext "$(kubernetes_ref "${registry}" "${ver}" "${arch}")" "${k8s_dest}.new" || {
+    rm -f "${cri_dest}.new"
+    return 1
+  }
+
+  _stopped=0
   _stop_kubelet
+  _stopped=1
   if [[ "${cri_changing}" -eq 1 ]]; then
     _stop_containerd
-    _pull_sysext "$(cri_ref "${registry}" "${os}" "${arch}")" "${cri_dest}.new"
-    mv "${cri_dest}.new" "${cri_dest}"
   fi
-  _pull_sysext "$(kubernetes_ref "${registry}" "${ver}" "${arch}")" "${k8s_dest}.new"
-  mv "${k8s_dest}.new" "${k8s_dest}"
+  if [[ "${cri_changing}" -eq 1 ]]; then
+    mv "${cri_dest}.new" "${cri_dest}" || {
+      _restart_if_stopped
+      return 1
+    }
+  fi
+  mv "${k8s_dest}.new" "${k8s_dest}" || {
+    _restart_if_stopped
+    return 1
+  }
   set_file_contents "${registry}" "${os}" "${arch}" "${ver}" >"${setfile}"
+  _refresh_sysext || {
+    _restart_if_stopped
+    return 1
+  }
+  if [[ -z "${pause_flag}" ]]; then
+    _read_pause_tag
+  fi
   _write_containerd_sandbox "${registry}"
-  _refresh_sysext
-  _start_runtime
+  _start_runtime || return 1
+  _stopped=0
   printf 'prepare-capi-node: applied cri=%s kubernetes=%s\n' "$(cri_ref "${registry}" "${os}" "${arch}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
 }
 

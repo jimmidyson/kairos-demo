@@ -1,5 +1,6 @@
 /keys/
 *.iso
+__pycache__/
 /build/
 /.devbox/
 /.worktrees/
