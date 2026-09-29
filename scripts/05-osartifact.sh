@@ -29,14 +29,20 @@ kubectl create secret docker-registry oci-registry-secret \
   | kubectl apply --server-side -f -
 
 op_ref="${KAIROS_OPERATOR_REF}"
-kubectl apply -k "https://github.com/kairos-io/kairos-operator/config/default?ref=${op_ref}"
-# That kustomize pins the previous release image (v0.2.2's file says v0.2.1).
-kubectl -n operator-system set image deploy/operator-kairos-operator \
-  manager="quay.io/kairos/operator:${op_ref}"
-kubectl -n operator-system set env deploy/operator-kairos-operator \
-  OPERATOR_IMAGE="quay.io/kairos/operator:${op_ref}" \
-  NODE_LABELER_IMAGE="quay.io/kairos/operator-node-labeler:${op_ref}"
-kubectl apply -k "https://github.com/kairos-io/kairos-operator/config/nginx?ref=${op_ref}"
+operator_kustomize_dir="$(mktemp -d)"
+cleanup_operator_kustomize() { rm -rf "${operator_kustomize_dir}"; }
+trap cleanup_operator_kustomize EXIT
+KAIROS_OPERATOR_REF="${op_ref}" envsubst '${KAIROS_OPERATOR_REF}' \
+  <"${ROOT}/kustomize/kairos-operator/kustomization.yaml.tpl" \
+  >"${operator_kustomize_dir}/kustomization.yaml"
+KAIROS_OPERATOR_REF="${op_ref}" envsubst '${KAIROS_OPERATOR_REF}' \
+  <"${ROOT}/kustomize/kairos-operator/operator-deployment-patch.yaml.tpl" \
+  >"${operator_kustomize_dir}/operator-deployment-patch.yaml"
+kubectl apply --server-side -k "${operator_kustomize_dir}"
+rm -rf "${operator_kustomize_dir}"
+# The local kustomization patches the operator image and child image environment
+# variables while applying both the operator and nginx configurations.
+# Rendered manager image: quay.io/kairos/operator:${op_ref}
 kubectl wait --for=condition=Established crd/osartifacts.build.kairos.io --timeout=180s
 # config/default sets namespace operator-system and namePrefix operator-.
 # config/nginx is unprefixed; the Deployment is named nginx, the Service kairos-operator-nginx.

@@ -11,4 +11,4 @@ spec:
   chartName: cilium
   releaseName: cilium
   namespace: kube-system
-  version: "1.17.6"
+  version: "${CILIUM_CHART_VERSION}"

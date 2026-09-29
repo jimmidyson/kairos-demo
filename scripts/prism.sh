@@ -99,11 +99,17 @@ prism_upload_object() {
   printf '  uploading object %s to %s/%s (%s bytes)\n' "${file}" "${NUTANIX_OBJECTS_BUCKET:-vmm-images}" "${key}" "${size}" >&2
   printf '  upload endpoint: %s\n' "${endpoint}" >&2
   # Pass credentials and progress flags explicitly, without inheriting an AWS
-  # profile or config that could redirect this upload or use SSO.
-  env AWS_ACCESS_KEY_ID="${access}" \
-      AWS_SECRET_ACCESS_KEY="${secret}" \
-      AWS_DEFAULT_REGION="${region}" \
-      AWS_CONFIG_FILE=<(cat <<'EOF'
+  # profile or config that could redirect this upload or use SSO. AWS retries
+  # individual requests, while this outer retry handles an upload that still
+  # fails after those attempts (for example, a persistent 429 on UploadPart).
+  local max_attempts="${NUTANIX_OBJECTS_UPLOAD_ATTEMPTS:-3}" retry_delay="${NUTANIX_OBJECTS_UPLOAD_RETRY_DELAY:-15}" attempt rc
+  [[ "${max_attempts}" =~ ^[1-9][0-9]*$ ]] || max_attempts=3
+  [[ "${retry_delay}" =~ ^[0-9]+$ ]] || retry_delay=15
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if env AWS_ACCESS_KEY_ID="${access}" \
+        AWS_SECRET_ACCESS_KEY="${secret}" \
+        AWS_DEFAULT_REGION="${region}" \
+        AWS_CONFIG_FILE=<(cat <<'EOF'
 [default]
 s3 =
     max_concurrent_requests = 1
@@ -111,14 +117,27 @@ s3 =
     multipart_threshold = 64MB
 EOF
 ) \
-      AWS_RETRY_MODE=adaptive \
-      AWS_MAX_ATTEMPTS=12 \
-      aws s3 cp "${file}" "s3://${NUTANIX_OBJECTS_BUCKET:-vmm-images}/${key}" \
-        --progress-multiline --progress-frequency 5 \
-        --endpoint-url "${endpoint}" \
-        --metadata "sha256=${digest}" \
-        $(if [[ "${NUTANIX_INSECURE:-}" == 1 ]]; then printf '%s' '--no-verify-ssl'; fi)
-  printf '  object upload complete: %s\n' "${key}" >&2
+        AWS_RETRY_MODE=adaptive \
+        AWS_MAX_ATTEMPTS=6 \
+        aws s3 cp "${file}" "s3://${NUTANIX_OBJECTS_BUCKET:-vmm-images}/${key}" \
+          --progress-multiline --progress-frequency 5 \
+          --endpoint-url "${endpoint}" \
+          --metadata "sha256=${digest}" \
+          $(if [[ "${NUTANIX_INSECURE:-}" == 1 ]]; then printf '%s' '--no-verify-ssl'; fi); then
+      printf '  object upload complete: %s\n' "${key}" >&2
+      return 0
+    else
+      rc=$?
+      if (( attempt == max_attempts )); then
+        printf '  object upload failed after %s attempt(s): %s\n' "${attempt}" "${key}" >&2
+        return "${rc:-1}"
+      fi
+      printf '  object upload attempt %s/%s failed; retrying in %ss\n' \
+        "${attempt}" "${max_attempts}" "${retry_delay}" >&2
+      sleep "${retry_delay}"
+    fi
+  done
+  return 1
 }
 
 # Prints "external-id<TAB>state" or nothing. v4 list responses contain data[].

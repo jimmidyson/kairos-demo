@@ -6,10 +6,14 @@ source "${ROOT}/scripts/lib.sh"
 # shellcheck source=prism.sh
 source "${ROOT}/scripts/prism.sh"
 
-IMAGE_NAME="${NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME:-kairos-ubuntu-24.04-amd64}"
+IMAGE_NAME="${NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME:-}"
+if [[ -z "${IMAGE_NAME}" && -s "${ROOT}/build/prism-image-name" ]]; then
+  IMAGE_NAME="$(<"${ROOT}/build/prism-image-name")"
+fi
+IMAGE_NAME="${IMAGE_NAME:-kairos-ubuntu-24.04-amd64}"
 
 step_start 10 "Destroy CAPX cluster" \
-  "Delete the workload Cluster and the Prism image. The management cluster stays unless DESTROY_KIND=1." \
+  "Delete the workload Cluster and the timestamped Prism image. The management cluster stays unless DESTROY_KIND=1." \
   "Cluster kairos-capi, Prism image ${IMAGE_NAME}"
 
 export KUBECONFIG="${ROOT}/kairos-kind.kubeconfig"

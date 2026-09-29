@@ -47,7 +47,7 @@ export NUTANIX_SSH_AUTHORIZED_KEY='ssh-ed25519 AAAA...'
 export CONTROL_PLANE_ENDPOINT_IP=...   # unused VIP/IP for the workload API
 ```
 
-Optional: `KAIROS_SKIP_DOCKER_CHECK=1` (build on a Docker/BuildKit pair older than the only one known to work), `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_MACHINE_TEMPLATE_IMAGE_NAME`, `NUTANIX_OBJECTS_ENDPOINT` (default `$NUTANIX_ENDPOINT/api/prism/v4.0/objects/`), `NUTANIX_OBJECTS_BUCKET` (default `vmm-images`), `NUTANIX_OBJECTS_REGION` (default `us-east-1`), `NUTANIX_OBJECTS_ACCESS_KEY` and `NUTANIX_OBJECTS_SECRET_KEY` (default: base64 of `$NUTANIX_USER:$NUTANIX_PASSWORD`), `NUTANIX_CA_FILE` (PEM Prism trusts), `NUTANIX_INSECURE=1` (skip Prism TLS verify), `SSH_IDENTITY_FILE` (private key matching `NUTANIX_SSH_AUTHORIZED_KEY`; optional, generated at `build/extension-ssh-key` if not set), `KAIROS_OPERATOR_REF` (default `v0.2.2`), `DESTROY_PRISM=0` (step 10 leaves the Prism image), `BASE_IMAGE` (required when `OSES` includes `rhel-9`).
+Optional: `KAIROS_SKIP_DOCKER_CHECK=1` (build on a Docker/BuildKit pair older than the only one known to work), `KAIROS_IMAGE_VERSION` (default `v0.1.0`, must be semver — kairos-init rejects git SHAs), `KUBERNETES_VERSION_OLD` (default `v1.35.8`), `KUBERNETES_VERSION_NEW` (default `v1.36.4`), `NUTANIX_OBJECTS_ENDPOINT` (default `$NUTANIX_ENDPOINT/api/prism/v4.0/objects/`), `NUTANIX_OBJECTS_BUCKET` (default `vmm-images`), `NUTANIX_OBJECTS_REGION` (default `us-east-1`), `NUTANIX_OBJECTS_ACCESS_KEY` and `NUTANIX_OBJECTS_SECRET_KEY` (default: base64 of `$NUTANIX_USER:$NUTANIX_PASSWORD`), `NUTANIX_CA_FILE` (PEM Prism trusts), `NUTANIX_INSECURE=1` (skip Prism TLS verify), `SSH_IDENTITY_FILE` (private key matching `NUTANIX_SSH_AUTHORIZED_KEY`; optional, generated at `build/extension-ssh-key` if not set), `KAIROS_OPERATOR_REF` (default `v0.2.2`), `DESTROY_PRISM=0` (step 10 leaves the Prism image), `BASE_IMAGE` (required when `OSES` includes `rhel-9`).
 
 ## Run
 
@@ -91,6 +91,6 @@ bash tests/prism_test.sh
 Prefix = `$OCI_REGISTRY/$OCI_REPOSITORY_PREFIX`
 
 - `base:ubuntu-24.04-amd64` (and the other OS/arch tags)
-- `cri:ubuntu-24.04-amd64`
+- `containerd:2.4.0-ubuntu-24.04-amd64`
 - `kubernetes:v1.36.4-amd64`
-- `kube-apiserver:v1.36.4` (and controller-manager, scheduler, proxy). etcd, coredns, and pause use the name and tag from `kubeadm config images list` for that Kubernetes version (not the Kubernetes version as the tag). Step 3 pushes `cri-rootfs` and `kubernetes-rootfs` so AuroraBoot can pull them, then pushes the packed sysext.
+- `kube-apiserver:v1.36.4` (and controller-manager, scheduler, proxy). etcd, coredns, and pause use the name and tag from `kubeadm config images list` for that Kubernetes version (not the Kubernetes version as the tag). Step 3 pushes `containerd-rootfs` and `kubernetes-rootfs` so AuroraBoot can pull them, then pushes the packed sysext.

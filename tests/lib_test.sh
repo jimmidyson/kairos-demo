@@ -7,6 +7,14 @@ source "${ROOT}/scripts/lib.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+profile="$(env -u RUNC_VERSION -u LIBPATHRS_VERSION -u CNI_PLUGINS_VERSION \
+  CONTAINERD_VERSION=2.4.0 bash -c 'source "$1/versions.env"; printf "%s %s %s\n" "$RUNC_VERSION" "$LIBPATHRS_VERSION" "$CNI_PLUGINS_VERSION"' _ "${ROOT}")"
+[[ "${profile}" == "1.5.1 0.2.5 1.9.1" ]] || fail "containerd compatibility profile: ${profile}"
+if env -u RUNC_VERSION -u LIBPATHRS_VERSION -u CNI_PLUGINS_VERSION \
+  CONTAINERD_VERSION=9.9.9 bash -c 'source "$1/versions.env"' _ "${ROOT}" 2>/dev/null; then
+  fail "unsupported containerd version should require explicit runtime pins"
+fi
+
 version_at_least 29.8.1 29.8.1 || fail "equal docker version"
 version_at_least 29.9.0 29.8.1 || fail "newer docker version"
 version_at_least v0.33.0 0.33.0 || fail "equal buildkit version"
@@ -23,7 +31,7 @@ export OCI_REPOSITORY_PREFIX=kairos-demo
 [[ "$(image_prefix)" == "harbor.example.com/kairos-demo" ]] || fail "image_prefix"
 
 [[ "$(base_image ubuntu-24.04 amd64)" == "harbor.example.com/kairos-demo/base:ubuntu-24.04-amd64" ]] || fail "base_image"
-[[ "$(cri_image rocky-9 arm64)" == "harbor.example.com/kairos-demo/cri:rocky-9-arm64" ]] || fail "cri_image"
+[[ "$(containerd_image rocky-9 arm64 2.4.0)" == "harbor.example.com/kairos-demo/containerd:2.4.0-rocky-9-arm64" ]] || fail "containerd_image"
 [[ "$(kubernetes_image v1.36.4 amd64)" == "harbor.example.com/kairos-demo/kubernetes:v1.36.4-amd64" ]] || fail "kubernetes_image"
 [[ "$(distro_image ubuntu-24.04)" == "ubuntu:24.04" ]] || fail "distro ubuntu"
 [[ "$(distro_image rocky-9)" == "rockylinux:9" ]] || fail "distro rocky"
