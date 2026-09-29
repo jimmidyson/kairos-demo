@@ -21,14 +21,8 @@ RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
 RUN --mount=type=bind,source=image,target=/mnt/image \
     ["/mnt/image/harden-el.sh"]
 
-ARG TARGETARCH
-ARG CRANE_VERSION=0.20.6
-RUN arch="${TARGETARCH}"; [ "${arch}" = "amd64" ] && arch=x86_64; \
-    curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_${arch}.tar.gz" \
-    | tar -xz -C /usr/bin crane
-
 COPY image/prepare-capi-node /usr/sbin/prepare-capi-node
-RUN chmod 0755 /usr/sbin/prepare-capi-node && mkdir -p /var/lib/extensions
+RUN chmod 0755 /usr/sbin/prepare-capi-node && mkdir -p /var/lib/kairos/extensions
 
 # CIS/STIG remove rsync. dracut refuses to build the UKI without it.
 RUN dnf -y install rsync && dnf clean all

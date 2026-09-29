@@ -6,9 +6,9 @@ source "${ROOT}/scripts/lib.sh"
 # shellcheck source=kubeadm-images.sh
 source "${ROOT}/scripts/kubeadm-images.sh"
 
-step_start 3 "Build cri + kubernetes sysexts" \
-  "cri is per OS×arch (dynamic containerd, built on the distro glibc). kubernetes is per version×arch." \
-  "$(image_prefix)/cri:… and $(image_prefix)/kubernetes:…"
+step_start 3 "Build containerd + kubernetes sysexts" \
+  "containerd is per OS×arch (dynamically linked, built on the distro glibc). kubernetes is per version×arch." \
+  "$(image_prefix)/containerd:… and $(image_prefix)/kubernetes:…"
 
 require_env OCI_REGISTRY
 require_env OCI_REPOSITORY_PREFIX
@@ -34,30 +34,36 @@ build_rootfs() {
 pack_sysext() {
   local src_image="$1" dest_image="$2" name="$3" arch="$4"
   local out="${ROOT}/build/sysexts"
-  # AuroraBoot writes <name>.sysext.raw into --output.
+  # AuroraBoot writes <name>.sysext.raw into --output. Remove a previous
+  # artifact so rerunning step 3 remains safe: systemd-repart refuses to
+  # overwrite an existing output image.
   local raw="${out}/${name}.sysext.raw"
+  rm -f "${raw}"
   run_auroraboot_sysext "${name}" "${src_image}" "${arch}" "${out}"
   local ctx="${ROOT}/build/sysexts/${name}-oci"
+  local artifact="${name}.sysext.raw"
   rm -rf "${ctx}"
   mkdir -p "${ctx}"
-  cp "${raw}" "${ctx}/extension.raw"
-  printf 'FROM scratch\nCOPY extension.raw /extension.raw\n' >"${ctx}/Dockerfile"
+  cp "${raw}" "${ctx}/${artifact}"
+  printf 'FROM scratch\nCOPY %s /%s\n' "${artifact}" "${artifact}" >"${ctx}/Dockerfile"
   oci_build --platform="linux/${arch}" --push --tag="${dest_image}" "${ctx}"
 }
 
 for os in ${OSES}; do
   for arch in ${ARCHES}; do
-    src="$(image_prefix)/cri-rootfs:${os}-${arch}"
-    printf '  cri rootfs %s\n' "${src}"
+    src="$(image_prefix)/containerd-rootfs:${CONTAINERD_VERSION}-${os}-${arch}"
+    printf '  containerd rootfs %s\n' "${src}"
     build_rootfs "${src}" --platform="linux/${arch}" \
       --file="${ROOT}/sysexts/Dockerfile.cri" \
       --build-arg="BASE_IMAGE=$(distro_image "${os}")" \
       --build-arg="GO_VERSION=${GO_VERSION}" \
+      --build-arg="LIBPATHRS_VERSION=${LIBPATHRS_VERSION}" \
       --build-arg="CONTAINERD_VERSION=${CONTAINERD_VERSION}" \
       --build-arg="RUNC_VERSION=${RUNC_VERSION}" \
       --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
       "${ROOT}"
-    pack_sysext "${src}" "$(cri_image "${os}" "${arch}")" "cri-${os}-${arch}" "${arch}"
+    pack_sysext "${src}" "$(containerd_image "${os}" "${arch}" "${CONTAINERD_VERSION}")" \
+      "containerd-${CONTAINERD_VERSION}-${os}-${arch}" "${arch}"
   done
 done
 

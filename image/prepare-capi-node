@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Apply the known CRI + kubernetes sysext set so CABPK can run kubeadm.
-# Usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--os OS] [--arch ARCH] [--pause-tag TAG]
+# Apply the known containerd + kubernetes sysext set so CABPK can run kubeadm.
+# Usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]
 set -euo pipefail
 
-EXTENSIONS_REL="var/lib/extensions"
+CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.4.0}"
+EXTENSIONS_REL="var/lib/kairos/extensions"
 SET_NAME="capi-node.set"
 PAUSE_IMAGE_TAG="${PAUSE_IMAGE_TAG:-3.10}"
 
@@ -47,8 +48,9 @@ detect_arch() {
   esac
 }
 
-cri_ref() {
-  printf '%s/cri:%s-%s\n' "$1" "$2" "$3"
+containerd_ref() {
+  local registry="$1" os="$2" arch="$3" version="${4:-${CONTAINERD_VERSION}}"
+  printf '%s/containerd:%s-%s-%s\n' "${registry}" "${version}" "${os}" "${arch}"
 }
 
 kubernetes_ref() {
@@ -56,8 +58,8 @@ kubernetes_ref() {
 }
 
 set_file_contents() {
-  local registry="$1" os="$2" arch="$3" ver="$4"
-  printf 'registry=%s\nos=%s\narch=%s\nkubernetes=%s\n' "${registry}" "${os}" "${arch}" "${ver}"
+  local registry="$1" os="$2" arch="$3" ver="$4" containerd_ver="${5:-${CONTAINERD_VERSION}}"
+  printf 'registry=%s\nos=%s\narch=%s\ncontainerd=%s\nkubernetes=%s\n' "${registry}" "${os}" "${arch}" "${containerd_ver}" "${ver}"
 }
 
 _set_field() {
@@ -94,20 +96,29 @@ _extensions_dir() {
 }
 
 _pull_sysext() {
-  local ref="$1" dest="$2"
+  local ref="$1" dest="$2" ext candidate
+  ext="$(_extensions_dir)"
   _log "pull ${ref}"
+  mkdir -p "${ext}"
   if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
     printf 'test-sysext %s\n' "${ref}" >"${dest}"
     return 0
   fi
-  local tmp
-  tmp="$(mktemp -d)"
-  if ! crane export "${ref}" - | tar -x -C "${tmp}" extension.raw; then
-    rm -rf "${tmp}"
+
+  # kairos-agent stores OCI extensions in Kairos' managed directory. Install
+  # first, then move the installed image into our versioned staging filename
+  # so a failed update cannot replace the extension currently in use.
+  kairos-agent sysext install "oci:${ref}" || return 1
+  candidate="$(find "${ext}" -maxdepth 1 -type f -name '*.raw' -printf '%T@ %p\n' |
+    sort -nr | awk 'NR == 1 { sub(/^[^ ]+ /, ""); print }')"
+  [[ -n "${candidate}" && -f "${candidate}" ]] || {
+    printf 'kairos-agent installed no raw sysext for %s\n' "${ref}" >&2
     return 1
+  }
+  if [[ "${candidate}" != "${dest}" ]]; then
+    mv "${candidate}" "${dest}"
   fi
-  mv "${tmp}/extension.raw" "${dest}"
-  rm -rf "${tmp}"
+  kairos-agent sysext enable --active --now "$(basename "${dest}")" || return 1
 }
 
 _refresh_sysext() {
@@ -192,16 +203,17 @@ _restart_if_stopped() {
 }
 
 prepare-capi-node-main() {
-  local registry="" ver="" os="" arch="" pause_flag=""
+  local registry="" ver="" os="" arch="" pause_flag="" containerd_ver="${CONTAINERD_VERSION}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --registry) registry="${2:-}"; shift 2 ;;
       --kubernetes-version) ver="${2:-}"; shift 2 ;;
+      --containerd-version) containerd_ver="${2:-}"; shift 2 ;;
       --os) os="${2:-}"; shift 2 ;;
       --arch) arch="${2:-}"; shift 2 ;;
       --pause-tag) pause_flag="${2:-}"; shift 2 ;;
       -h | --help)
-        printf 'usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--os OS] [--arch ARCH] [--pause-tag TAG]\n' >&2
+        printf 'usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]\n' >&2
         return 2
         ;;
       *)
@@ -228,44 +240,45 @@ prepare-capi-node-main() {
     arch="$(detect_arch)"
   fi
 
-  local ext setfile cri_dest k8s_dest
+  local ext setfile containerd_dest k8s_dest
   ext="$(_extensions_dir)"
   mkdir -p "${ext}"
   setfile="${ext}/${SET_NAME}"
-  cri_dest="${ext}/cri.raw"
-  k8s_dest="${ext}/kubernetes.raw"
+  containerd_dest="${ext}/containerd.sysext.raw"
+  k8s_dest="${ext}/kubernetes.sysext.raw"
 
-  if already_applied "${setfile}" "${registry}" "${os}" "${arch}" "${ver}"; then
+  if already_applied "${setfile}" "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}"; then
     printf 'prepare-capi-node: already applied %s %s %s\n' "${os}" "${arch}" "${ver}"
     return 0
   fi
 
-  local cri_changing=0 prev_reg prev_os prev_arch
+  local containerd_changing=0 prev_reg prev_os prev_arch prev_containerd
   prev_reg="$(_set_field "${setfile}" registry || true)"
   prev_os="$(_set_field "${setfile}" os || true)"
   prev_arch="$(_set_field "${setfile}" arch || true)"
-  if [[ ! -f "${setfile}" || "${prev_reg}" != "${registry}" || "${prev_os}" != "${os}" || "${prev_arch}" != "${arch}" ]]; then
-    cri_changing=1
+  prev_containerd="$(_set_field "${setfile}" containerd || true)"
+  if [[ ! -f "${setfile}" || "${prev_reg}" != "${registry}" || "${prev_os}" != "${os}" || "${prev_arch}" != "${arch}" || "${prev_containerd}" != "${containerd_ver}" ]]; then
+    containerd_changing=1
   fi
 
   # Pull beside the live files before stopping anything. A failed pull must
   # leave kubelet running.
-  if [[ "${cri_changing}" -eq 1 ]]; then
-    _pull_sysext "$(cri_ref "${registry}" "${os}" "${arch}")" "${cri_dest}.new" || return 1
+  if [[ "${containerd_changing}" -eq 1 ]]; then
+    _pull_sysext "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "${containerd_dest}.new" || return 1
   fi
   _pull_sysext "$(kubernetes_ref "${registry}" "${ver}" "${arch}")" "${k8s_dest}.new" || {
-    rm -f "${cri_dest}.new"
+    rm -f "${containerd_dest}.new"
     return 1
   }
 
   _stopped=0
   _stop_kubelet
   _stopped=1
-  if [[ "${cri_changing}" -eq 1 ]]; then
+  if [[ "${containerd_changing}" -eq 1 ]]; then
     _stop_containerd
   fi
-  if [[ "${cri_changing}" -eq 1 ]]; then
-    mv "${cri_dest}.new" "${cri_dest}" || {
+  if [[ "${containerd_changing}" -eq 1 ]]; then
+    mv "${containerd_dest}.new" "${containerd_dest}" || {
       _restart_if_stopped
       return 1
     }
@@ -274,7 +287,7 @@ prepare-capi-node-main() {
     _restart_if_stopped
     return 1
   }
-  set_file_contents "${registry}" "${os}" "${arch}" "${ver}" >"${setfile}"
+  set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}" >"${setfile}"
   _refresh_sysext || {
     _restart_if_stopped
     return 1
@@ -285,7 +298,7 @@ prepare-capi-node-main() {
   _write_containerd_sandbox "${registry}"
   _start_runtime || return 1
   _stopped=0
-  printf 'prepare-capi-node: applied cri=%s kubernetes=%s\n' "$(cri_ref "${registry}" "${os}" "${arch}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
+  printf 'prepare-capi-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

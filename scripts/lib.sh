@@ -33,8 +33,8 @@ image_prefix() {
   printf '%s/%s\n' "${OCI_REGISTRY:?}" "${OCI_REPOSITORY_PREFIX:?}"
 }
 
-# Distro image whose glibc matches a Kairos base. The cri sysext links against
-# this, not the Kairos image (kairos-init is a poor build root).
+# Distro image whose glibc matches a Kairos base. The containerd sysext links
+# against this, not the Kairos image (kairos-init is a poor build root).
 distro_image() {
   local os="$1"
   case "${os}" in
@@ -59,9 +59,9 @@ base_image() {
   printf '%s/base:%s-%s\n' "$(image_prefix)" "${os}" "${arch}"
 }
 
-cri_image() {
-  local os="$1" arch="$2"
-  printf '%s/cri:%s-%s\n' "$(image_prefix)" "${os}" "${arch}"
+containerd_image() {
+  local os="$1" arch="$2" ver="$3"
+  printf '%s/containerd:%s-%s-%s\n' "$(image_prefix)" "${ver}" "${os}" "${arch}"
 }
 
 kubernetes_image() {
