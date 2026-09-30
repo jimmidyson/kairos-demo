@@ -30,11 +30,16 @@ grep -q -- '--registry' /tmp/pcn-err || fail "missing --registry message: $(cat 
 prepare-capi-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubuntu-24.04 --arch amd64
 [[ -f "${tmpdir}/var/lib/kairos/extensions/capi-node.set" ]] || fail "set file not written"
 already_applied "${tmpdir}/var/lib/kairos/extensions/capi-node.set" "${reg}" ubuntu-24.04 amd64 v1.36.4 || fail "should be applied"
+[[ -f "${tmpdir}/var/lib/kairos/extensions/containerd-2.4.0-ubuntu-24.04-amd64.sysext.raw" ]] || fail "versioned containerd extension not written"
+[[ -f "${tmpdir}/var/lib/kairos/extensions/kubernetes-v1.36.4-amd64.sysext.raw" ]] || fail "versioned kubernetes extension not written"
+# Forwarding is configured in the OS image, not by prepare-capi-node.
+[[ ! -e "${tmpdir}/etc/sysctl.d/99-kubernetes-cri.conf" ]] || fail "prepare-capi-node must not configure forwarding"
+[[ ! -e "${tmpdir}/proc/sys/net/ipv4/ip_forward" ]] || fail "prepare-capi-node must not configure live forwarding"
 
-# no-op: second run must not rewrite extension blobs if we stamp a marker
-echo marker > "${tmpdir}/var/lib/kairos/extensions/kubernetes.sysext.raw"
+# no-op: second run must not rewrite the active versioned extension if we stamp a marker
+echo marker > "${tmpdir}/var/lib/kairos/extensions/kubernetes-v1.36.4-amd64.sysext.raw"
 prepare-capi-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubuntu-24.04 --arch amd64
-[[ "$(cat "${tmpdir}/var/lib/kairos/extensions/kubernetes.sysext.raw")" == "marker" ]] || fail "no-op bounced files"
+[[ "$(cat "${tmpdir}/var/lib/kairos/extensions/kubernetes-v1.36.4-amd64.sysext.raw")" == "marker" ]] || fail "no-op bounced files"
 
 [[ "$(detect_os $'ID=rhel\nVERSION_ID=\"9.4\"')" == "rhel-9" ]] || fail "rhel 9"
 
@@ -51,7 +56,7 @@ stop_line="$(grep -n '^stop kubelet$' "${log}" | head -1 | cut -d: -f1)"
 [[ -n "${pull_line}" && -n "${stop_line}" && "${pull_line}" -lt "${stop_line}" ]] || fail "pull must happen before stop: $(cat "${log}")"
 
 prepare-capi-node-main --registry "other.example/p" --kubernetes-version v1.36.5 --os ubuntu-24.04 --arch amd64
-grep -q 'other.example/p/containerd:2.4.0-ubuntu-24.04-amd64' "${tmpdir}/var/lib/kairos/extensions/containerd.sysext.raw" || fail "registry change did not refresh containerd"
+grep -q 'other.example/p/containerd:2.4.0-ubuntu-24.04-amd64' "${tmpdir}/var/lib/kairos/extensions/containerd-2.4.0-ubuntu-24.04-amd64.sysext.raw" || fail "registry change did not refresh containerd"
 
 mkdir -p "${tmpdir}/usr/lib/kairos"
 printf '3.10.1\n' >"${tmpdir}/usr/lib/kairos/pause-tag"

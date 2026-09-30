@@ -17,6 +17,13 @@ ARG MODEL
 RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
     /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}"
 
+# Kubernetes nodes must forward pod traffic over both IP families. Persist the
+# settings in the image; the runtime applies them during boot.
+RUN mkdir -p /etc/sysctl.d && printf '%s\n' \
+      'net.ipv4.ip_forward = 1' \
+      'net.ipv6.conf.all.forwarding = 1' \
+    > /etc/sysctl.d/99-kubernetes-cri.conf
+
 # Mount the directory so the script is not stored in a layer.
 RUN --mount=type=bind,source=image,target=/mnt/image \
     --mount=type=secret,id=ubuntu-pro-token,target=/run/secrets/ubuntu-pro-token \

@@ -96,29 +96,19 @@ _extensions_dir() {
 }
 
 _pull_sysext() {
-  local ref="$1" dest="$2" ext candidate
+  local ref="$1" name="$2" ext
   ext="$(_extensions_dir)"
   _log "pull ${ref}"
   mkdir -p "${ext}"
   if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
-    printf 'test-sysext %s\n' "${ref}" >"${dest}"
+    printf 'test-sysext %s\n' "${ref}" >"${ext}/${name}.sysext.raw"
     return 0
   fi
 
-  # kairos-agent stores OCI extensions in Kairos' managed directory. Install
-  # first, then move the installed image into our versioned staging filename
-  # so a failed update cannot replace the extension currently in use.
+  # The OCI extension has a versioned name. Install it directly and enable
+  # that same name; do not rename it to a generic or .new staging filename.
   kairos-agent sysext install "oci:${ref}" || return 1
-  candidate="$(find "${ext}" -maxdepth 1 -type f -name '*.raw' -printf '%T@ %p\n' |
-    sort -nr | awk 'NR == 1 { sub(/^[^ ]+ /, ""); print }')"
-  [[ -n "${candidate}" && -f "${candidate}" ]] || {
-    printf 'kairos-agent installed no raw sysext for %s\n' "${ref}" >&2
-    return 1
-  }
-  if [[ "${candidate}" != "${dest}" ]]; then
-    mv "${candidate}" "${dest}"
-  fi
-  kairos-agent sysext enable --active --now "$(basename "${dest}")" || return 1
+  kairos-agent sysext enable --active --now "${name}" || return 1
 }
 
 _refresh_sysext() {
@@ -240,12 +230,12 @@ prepare-capi-node-main() {
     arch="$(detect_arch)"
   fi
 
-  local ext setfile containerd_dest k8s_dest
+  local ext setfile containerd_name k8s_name
   ext="$(_extensions_dir)"
   mkdir -p "${ext}"
   setfile="${ext}/${SET_NAME}"
-  containerd_dest="${ext}/containerd.sysext.raw"
-  k8s_dest="${ext}/kubernetes.sysext.raw"
+  containerd_name="containerd"
+  k8s_name="kubernetes"
 
   if already_applied "${setfile}" "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}"; then
     printf 'prepare-capi-node: already applied %s %s %s\n' "${os}" "${arch}" "${ver}"
@@ -261,15 +251,12 @@ prepare-capi-node-main() {
     containerd_changing=1
   fi
 
-  # Pull beside the live files before stopping anything. A failed pull must
-  # leave kubelet running.
+  # Install the versioned extensions before stopping anything. A failed
+  # install must leave kubelet running.
   if [[ "${containerd_changing}" -eq 1 ]]; then
-    _pull_sysext "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "${containerd_dest}.new" || return 1
+    _pull_sysext "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "${containerd_name}" || return 1
   fi
-  _pull_sysext "$(kubernetes_ref "${registry}" "${ver}" "${arch}")" "${k8s_dest}.new" || {
-    rm -f "${containerd_dest}.new"
-    return 1
-  }
+  _pull_sysext "$(kubernetes_ref "${registry}" "${ver}" "${arch}")" "${k8s_name}" || return 1
 
   _stopped=0
   _stop_kubelet
@@ -277,16 +264,6 @@ prepare-capi-node-main() {
   if [[ "${containerd_changing}" -eq 1 ]]; then
     _stop_containerd
   fi
-  if [[ "${containerd_changing}" -eq 1 ]]; then
-    mv "${containerd_dest}.new" "${containerd_dest}" || {
-      _restart_if_stopped
-      return 1
-    }
-  fi
-  mv "${k8s_dest}.new" "${k8s_dest}" || {
-    _restart_if_stopped
-    return 1
-  }
   set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}" >"${setfile}"
   _refresh_sysext || {
     _restart_if_stopped

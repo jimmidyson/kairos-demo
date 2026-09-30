@@ -35,6 +35,10 @@ grep -q 'systemctl mask systemd-timesyncd' "${ROOT}/image/Dockerfile.ubuntu" || 
 grep -q 'systemctl enable chrony' "${ROOT}/image/Dockerfile.ubuntu" || fail "ubuntu STIG time source is chrony"
 grep -q 'systemd-timesyncd chrony-' "${ROOT}/image/Dockerfile.ubuntu" || fail "timesyncd install must remove chrony"
 grep -q 'apt-get purge -y systemd-timesyncd' "${ROOT}/image/Dockerfile.ubuntu" || fail "timesyncd must be purged after kairos-init"
+for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
+  grep -q 'net.ipv4.ip_forward = 1' "${ROOT}/${df}" || fail "${df}: IPv4 forwarding"
+  grep -q 'net.ipv6.conf.all.forwarding = 1' "${ROOT}/${df}" || fail "${df}: IPv6 forwarding"
+done
 
 order_before() {
   local file="$1" a="$2" b="$3" la lb
