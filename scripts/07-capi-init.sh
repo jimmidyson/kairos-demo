@@ -24,7 +24,8 @@ clusterctl init \
   --control-plane "kubeadm:${CAPI_VERSION}" \
   --infrastructure "nutanix:${CAPX_VERSION}" \
   --addon "helm:${CAAPH_VERSION}" \
-  --runtime-extension "nutanix:${CAREN_VERSION}"
+  --runtime-extension "nutanix:${CAREN_VERSION}" \
+  --wait-providers
 
 ssh_key="${SSH_IDENTITY_FILE:-}"
 if [[ -z "${ssh_key}" ]]; then

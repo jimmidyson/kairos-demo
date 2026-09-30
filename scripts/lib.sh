@@ -399,7 +399,7 @@ run_auroraboot_sysext() {
         -v "${out_dir}:/build" \
         -v "${DOCKER_CONFIG}:/auth:ro" \
         "${AURORABOOT_IMAGE}" \
-        sysext --arch "${arch}" --output=/build "${name}" "${image}" || rc=$?
+        sysext --arch "${arch}" --with-opt --output=/build "${name}" "${image}" || rc=$?
       ;;
   esac
   return "${rc}"

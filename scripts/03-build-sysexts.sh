@@ -32,7 +32,7 @@ build_rootfs() {
 }
 
 pack_sysext() {
-  local src_image="$1" dest_image="$2" name="$3" arch="$4"
+  local src_image="$1" dest_image="$2" name="$3" arch="$4" artifact="$5"
   local out="${ROOT}/build/sysexts"
   # AuroraBoot writes <name>.sysext.raw into --output. Remove a previous
   # artifact so rerunning step 3 remains safe: systemd-repart refuses to
@@ -41,11 +41,10 @@ pack_sysext() {
   rm -f "${raw}"
   run_auroraboot_sysext "${name}" "${src_image}" "${arch}" "${out}"
   local ctx="${ROOT}/build/sysexts/${name}-oci"
-  local artifact="${name}.sysext.raw"
   rm -rf "${ctx}"
   mkdir -p "${ctx}"
   cp "${raw}" "${ctx}/${artifact}"
-  printf 'FROM scratch\nCOPY %s /%s\n' "${artifact}" "${artifact}" >"${ctx}/Dockerfile"
+  printf 'FROM scratch\nCOPY %s /%s\n' "${artifact}" "${name}.sysext.raw" >"${ctx}/Dockerfile"
   oci_build --platform="linux/${arch}" --push --tag="${dest_image}" "${ctx}"
 }
 
@@ -63,7 +62,8 @@ for os in ${OSES}; do
       --build-arg="CNI_PLUGINS_VERSION=${CNI_PLUGINS_VERSION}" \
       "${ROOT}"
     pack_sysext "${src}" "$(containerd_image "${os}" "${arch}" "${CONTAINERD_VERSION}")" \
-      "containerd-${CONTAINERD_VERSION}-${os}-${arch}" "${arch}"
+      "containerd" "${arch}" \
+      "containerd-${CONTAINERD_VERSION}.sysext.raw"
   done
 done
 
@@ -80,7 +80,8 @@ for ver in "${KUBERNETES_VERSION_OLD}" "${KUBERNETES_VERSION_NEW}"; do
       --build-arg="RELEASE_VERSION=${KUBE_RELEASE_VERSION}" \
       --build-arg="PAUSE_TAG=${pause}" \
       "${ROOT}"
-    pack_sysext "${src}" "$(kubernetes_image "${ver}" "${arch}")" "kubernetes-${ver}-${arch}" "${arch}"
+    pack_sysext "${src}" "$(kubernetes_image "${ver}" "${arch}")" "kubernetes" "${arch}" \
+      "kubernetes-${ver}.sysext.raw"
   done
 done
 

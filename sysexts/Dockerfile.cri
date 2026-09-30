@@ -41,7 +41,7 @@ RUN git clone --depth 1 --branch "v${CNI_PLUGINS_VERSION}" https://github.com/co
 WORKDIR /src/plugins
 RUN CGO_ENABLED=0 ./build_linux.sh
 
-FROM ${BASE_IMAGE}
+FROM scratch AS base
 COPY --from=build /out/ /
 COPY --from=build /src/containerd/bin/containerd /usr/bin/containerd
 COPY --from=build /src/containerd/bin/containerd-shim-runc-v2 /usr/bin/containerd-shim-runc-v2
@@ -49,5 +49,8 @@ COPY --from=build /src/containerd/bin/ctr /usr/bin/ctr
 COPY --from=build /src/runc/runc /usr/bin/runc
 COPY --from=build /src/plugins/bin /opt/cni/bin
 COPY sysexts/containerd.service /usr/lib/systemd/system/containerd.service
-RUN mkdir -p /etc/systemd/system/multi-user.target.wants && \
-    ln -sf /usr/lib/systemd/system/containerd.service /etc/systemd/system/multi-user.target.wants/containerd.service
+
+# AuroraBoot packs only the final image layer. Flatten the distro and all
+# copied artifacts into one layer so the sysext contains the complete rootfs.
+FROM scratch
+COPY --from=base / /
