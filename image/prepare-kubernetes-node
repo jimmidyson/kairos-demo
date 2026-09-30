@@ -146,16 +146,6 @@ _containerd_dir() {
   fi
 }
 
-_kubeadm_patches_dir() {
-  local r
-  r="$(_root)"
-  if [[ -n "${r}" ]]; then
-    printf '%s/etc/kubernetes/patches\n' "${r}"
-  else
-    printf '/etc/kubernetes/patches\n'
-  fi
-}
-
 _write_containerd_config() {
   local registry="$1" dir img
   dir="$(_containerd_dir)"

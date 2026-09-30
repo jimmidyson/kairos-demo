@@ -32,7 +32,6 @@ prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.4 --
 already_applied "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" "${reg}" ubuntu-24.04 amd64 v1.36.4 || fail "should be applied"
 [[ -f "${tmpdir}/var/lib/kairos/extensions/containerd-2.4.0-ubuntu-24.04-amd64.sysext.raw" ]] || fail "versioned containerd extension not written"
 [[ -f "${tmpdir}/var/lib/kairos/extensions/kubernetes-v1.36.4-amd64.sysext.raw" ]] || fail "versioned kubernetes extension not written"
-[[ -d "${tmpdir}/etc/kubernetes/patches" ]] || fail "kubeadm patches directory not created"
 # Forwarding is configured in the OS image, not by prepare-kubernetes-node.
 [[ ! -e "${tmpdir}/etc/sysctl.d/99-kubernetes-cri.conf" ]] || fail "prepare-kubernetes-node must not configure forwarding"
 [[ ! -e "${tmpdir}/proc/sys/net/ipv4/ip_forward" ]] || fail "prepare-kubernetes-node must not configure live forwarding"

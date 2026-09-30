@@ -23,6 +23,7 @@ spec:
           controlPlaneEndpoint:
             host: ${CONTROL_PLANE_ENDPOINT_IP}
             port: 6443
+            virtualIP: {}
           prismCentralEndpoint:
             credentials:
               secretRef:
