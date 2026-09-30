@@ -17,11 +17,24 @@ ARG MODEL
 RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
     /kairos-init -l debug -s install -m "${MODEL}" --version "${VERSION}"
 
+# Mount the directory so the script is not stored in a layer.
+RUN --mount=type=bind,source=image,target=/mnt/image \
+    ["/mnt/image/harden-el.sh"]
+
+COPY image/prepare-kubernetes-node /usr/sbin/prepare-kubernetes-node
+RUN chmod 0755 /usr/sbin/prepare-kubernetes-node && mkdir -p /var/lib/kairos/extensions
+
+# CIS/STIG remove rsync. dracut refuses to build the UKI without it.
+RUN dnf -y install rsync && dnf clean all
+
+RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
+    /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}"
+
 # Kubernetes nodes must forward pod traffic over both IP families. Persist the
 # settings in the image; the runtime applies them during boot.
 # Keep BPF JIT hardening for unprivileged programs while allowing privileged
 # Cilium programs to run without constant-blinding overhead.
-RUN mkdir -p /etc/sysctl.d && printf '%s\n' \
+RUN mkdir -p /usr/lib/sysctl.d /etc/sysctl.d && printf '%s\n' \
       'net.ipv4.ip_forward = 1' \
       'net.ipv6.conf.all.forwarding = 1' \
       'net.bridge.bridge-nf-call-iptables  = 1' \
@@ -32,7 +45,8 @@ RUN mkdir -p /etc/sysctl.d && printf '%s\n' \
       'net.ipv4.ip_local_reserved_ports = 30000-32767' \
       'fs.inotify.max_user_watches = 524288' \
       'fs.inotify.max_user_instances = 8192' \
-    > /etc/sysctl.d/99-kubernetes.conf
+    > /usr/lib/sysctl.d/99-zz-kubernetes.conf \
+ && ln -s /usr/lib/sysctl.d/99-zz-kubernetes.conf /etc/sysctl.d/99-zz-kubernetes.conf
 
 # Kubernetes kubelet runs with swap disabled. Remove fstab swap entries and
 # mask swap.target so provisioning cannot enable swap during boot.
@@ -48,16 +62,3 @@ RUN mkdir -p /etc/modules-load.d && printf '%s\n' \
     > /etc/modules-load.d/kubernetes.conf
 
 COPY image/05-k8s-noswap.yaml /system/oem/05-k8s-noswap.yaml
-
-# Mount the directory so the script is not stored in a layer.
-RUN --mount=type=bind,source=image,target=/mnt/image \
-    ["/mnt/image/harden-el.sh"]
-
-COPY image/prepare-kubernetes-node /usr/sbin/prepare-kubernetes-node
-RUN chmod 0755 /usr/sbin/prepare-kubernetes-node && mkdir -p /var/lib/kairos/extensions
-
-# CIS/STIG remove rsync. dracut refuses to build the UKI without it.
-RUN dnf -y install rsync && dnf clean all
-
-RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
-    /kairos-init -l debug -s init -m "${MODEL}" --version "${VERSION}"

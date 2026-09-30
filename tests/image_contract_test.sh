@@ -37,6 +37,8 @@ grep -q 'systemd-timesyncd chrony-' "${ROOT}/image/Dockerfile.ubuntu" || fail "t
 grep -q 'apt-get purge -y systemd-timesyncd' "${ROOT}/image/Dockerfile.ubuntu" || fail "timesyncd must be purged after kairos-init"
 for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   grep -q 'net.ipv4.ip_forward = 1' "${ROOT}/${df}" || fail "${df}: IPv4 forwarding"
+  grep -q '/usr/lib/sysctl.d/99-zz-kubernetes.conf' "${ROOT}/${df}" || fail "${df}: sysctl file must be under /usr/lib/sysctl.d"
+  grep -q 'ln -s /usr/lib/sysctl.d/99-zz-kubernetes.conf /etc/sysctl.d/99-zz-kubernetes.conf' "${ROOT}/${df}" || fail "${df}: sysctl file must be linked into /etc/sysctl.d"
   grep -q 'net.ipv6.conf.all.forwarding = 1' "${ROOT}/${df}" || fail "${df}: IPv6 forwarding"
   grep -q 'net.bridge.bridge-nf-call-iptables  = 1' "${ROOT}/${df}" || fail "${df}: bridge IPv4 netfilter"
   grep -q 'net.bridge.bridge-nf-call-ip6tables = 1' "${ROOT}/${df}" || fail "${df}: bridge IPv6 netfilter"
@@ -72,6 +74,10 @@ for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   order_before "${ROOT}/${df}" '-s install -m' 'harden-'
   order_before "${ROOT}/${df}" 'harden-' '-s init -m'
   order_before "${ROOT}/${df}" 'prepare-kubernetes-node' '-s init -m'
+  order_before "${ROOT}/${df}" '-s init -m' 'net.ipv4.ip_forward'
+  order_before "${ROOT}/${df}" '-s init -m' 'swap.target'
+  order_before "${ROOT}/${df}" '-s init -m' 'modules-load.d'
+  order_before "${ROOT}/${df}" '-s init -m' '05-k8s-noswap.yaml'
   order_before "${ROOT}/${df}" 'harden-' 'rsync'
   order_before "${ROOT}/${df}" 'rsync' '-s init -m'
 done
