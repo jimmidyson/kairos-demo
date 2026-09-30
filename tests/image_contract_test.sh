@@ -5,6 +5,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 grep -q 'kubeadm init' "${ROOT}/image/cloud-config.yaml" && fail "OEM cloud-config must not kubeadm init"
 grep -q 'prepare-kubernetes-node' "${ROOT}/image/cloud-config.yaml" && fail "OEM must not call prepare-kubernetes-node; CAPI preKubeadmCommands owns that"
 grep -q 'nkpadmin' "${ROOT}/image/cloud-config.yaml" || fail "missing debug user"
+grep -q '/usr/local/cloud-config/99-custom-hostname.yaml' "${ROOT}/scripts/08-create-cluster.sh" || fail "kubeadm patch must deliver custom hostname cloud-config"
+grep -q 'ds.meta_data.hostname' "${ROOT}/scripts/08-create-cluster.sh" || fail "custom hostname must use instance metadata"
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 case "${KAIROS_IMAGE_VERSION}" in
@@ -111,6 +113,7 @@ grep -q -F -- 'imageName:' "${ROOT}/osartifact/cloud-image.yaml.tpl" && fail "v0
 grep -q -F -- 'ref: ${BASE_IMAGE}' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact source is spec.image.ref"
 grep -q -F -- 'cloudImage: true' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact still requests a cloud image"
 grep -q 'imageRepository' "${ROOT}/scripts/capi_patch.py" || fail "capi patch sets imageRepository"
+grep -q 'kairos-custom-hostname' "${ROOT}/scripts/08-create-cluster.sh" || fail "CAPI must patch kubeadm cloud-config hostname"
 grep -q 'CAPI_VERSION=' "${ROOT}/versions.env" || fail "CAPI_VERSION pin"
 grep -q -- '--core "cluster-api:${CAPI_VERSION}"' "${ROOT}/scripts/07-capi-init.sh" || fail "clusterctl core version"
 grep -q -- '--bootstrap "kubeadm:${CAPI_VERSION}"' "${ROOT}/scripts/07-capi-init.sh" || fail "clusterctl bootstrap version"
