@@ -60,10 +60,10 @@ for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   order_before "${ROOT}/${df}" 'rsync' '-s init -m'
 done
 order_before "${ROOT}/image/Dockerfile.ubuntu" '-s init -m' 'systemctl mask systemd-timesyncd'
-grep -q 'opencontainers/runc' "${ROOT}/sysexts/Dockerfile.cri" || fail "runc must be built from source"
-grep -q 'containernetworking/plugins' "${ROOT}/sysexts/Dockerfile.cri" || fail "cni must be built from source"
-grep -q 'runc.${TARGETARCH}' "${ROOT}/sysexts/Dockerfile.cri" && fail "runc must not be an upstream release binary"
-grep -E '^ARG [A-Za-z0-9_]+=' "${ROOT}/sysexts/Dockerfile.cri" "${ROOT}/sysexts/Dockerfile.kubernetes" && fail "sysext ARGs take their values from the build, not Dockerfile defaults"
+grep -q 'opencontainers/runc' "${ROOT}/sysexts/Dockerfile.containerd" || fail "runc must be built from source"
+grep -q 'containernetworking/plugins' "${ROOT}/sysexts/Dockerfile.containerd" || fail "cni must be built from source"
+grep -q 'runc.${TARGETARCH}' "${ROOT}/sysexts/Dockerfile.containerd" && fail "runc must not be an upstream release binary"
+grep -E '^ARG [A-Za-z0-9_]+=' "${ROOT}/sysexts/Dockerfile.containerd" "${ROOT}/sysexts/Dockerfile.kubernetes" && fail "sysext ARGs take their values from the build, not Dockerfile defaults"
 grep -q -F -- 'RELEASE_VERSION=${KUBE_RELEASE_VERSION}' "${ROOT}/scripts/03-build-sysexts.sh" || fail "kubelet unit templates use KUBE_RELEASE_VERSION"
 grep -q 'distro_image' "${ROOT}/scripts/03-build-sysexts.sh" || fail "cri build must use the distro image"
 grep -q 'oci_build' "${ROOT}/scripts/02-build-bases.sh" || fail "bases use oci_build"

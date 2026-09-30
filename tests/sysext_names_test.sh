@@ -10,6 +10,6 @@ export OCI_REGISTRY=h.example OCI_REPOSITORY_PREFIX=p
 
 grep -q 'containerd-.*CONTAINERD_VERSION.*-.*-.*' "${ROOT}/scripts/03-build-sysexts.sh" || fail "versioned containerd name"
 grep -q 'kubernetes-.*-.*' "${ROOT}/scripts/03-build-sysexts.sh" || fail "versioned kubernetes name"
-grep -q 'GOFIPS140=certified' "${ROOT}/sysexts/Dockerfile.cri" || fail "cri FIPS"
+grep -q 'GOFIPS140=certified' "${ROOT}/sysexts/Dockerfile.containerd" || fail "containerd FIPS"
 grep -q 'pause-tag' "${ROOT}/sysexts/Dockerfile.kubernetes" || fail "pause tag file"
 echo "ok sysext_names_test"
