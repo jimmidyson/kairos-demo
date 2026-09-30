@@ -28,11 +28,20 @@ RUN mkdir -p /etc/sysctl.d && printf '%s\n' \
       'fs.inotify.max_user_instances = 8192' \
     > /etc/sysctl.d/99-kubernetes.conf
 
+# Kubernetes kubelet runs with swap disabled. Remove fstab swap entries and
+# mask swap.target so provisioning cannot enable swap during boot.
+RUN if [ -f /etc/fstab ]; then sed -i -E '/^[[:space:]]*[^#[:space:]]+[[:space:]]+none[[:space:]]+swap([[:space:]]|$)/d' /etc/fstab; fi \
+ && mkdir -p /etc/systemd/system /usr/lib/systemd/system \
+ && ln -sf /dev/null /etc/systemd/system/swap.target \
+ && ln -sf /dev/null /usr/lib/systemd/system/swap.target
+
 # Kubernetes/containerd requires these modules; load them automatically at boot.
 RUN mkdir -p /etc/modules-load.d && printf '%s\n' \
       'overlay' \
       'br_netfilter' \
     > /etc/modules-load.d/kubernetes.conf
+
+COPY image/05-k8s-noswap.yaml /system/oem/05-k8s-noswap.yaml
 
 # Mount the directory so the script is not stored in a layer.
 RUN --mount=type=bind,source=image,target=/mnt/image \

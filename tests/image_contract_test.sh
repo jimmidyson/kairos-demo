@@ -42,7 +42,15 @@ for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   grep -q 'net.bridge.bridge-nf-call-ip6tables = 1' "${ROOT}/${df}" || fail "${df}: bridge IPv6 netfilter"
   grep -q 'fs.inotify.max_user_watches = 524288' "${ROOT}/${df}" || fail "${df}: inotify watches"
   grep -q 'fs.inotify.max_user_instances = 8192' "${ROOT}/${df}" || fail "${df}: inotify instances"
+  grep -q 'swap.target' "${ROOT}/${df}" || fail "${df}: swap.target must be masked"
+  grep -q 'ln -sf /dev/null /etc/systemd/system/swap.target' "${ROOT}/${df}" || fail "${df}: etc swap.target must be masked"
+  grep -q 'ln -sf /dev/null /usr/lib/systemd/system/swap.target' "${ROOT}/${df}" || fail "${df}: usr swap.target must be masked"
+  grep -q 'sed -i -E.*swap' "${ROOT}/${df}" || fail "${df}: fstab swap entries must be removed"
+  grep -q 'COPY image/05-k8s-noswap.yaml /system/oem/05-k8s-noswap.yaml' "${ROOT}/${df}" || fail "${df}: no-swap OEM config must be copied"
 done
+grep -q 'systemd-zram-setup@zram0.service' "${ROOT}/image/05-k8s-noswap.yaml" || fail "no-swap OEM config must mask zram"
+grep -q 'vm.swappiness: "0"' "${ROOT}/image/05-k8s-noswap.yaml" || fail "no-swap OEM config must set swappiness"
+grep -q 'swapoff -a' "${ROOT}/image/05-k8s-noswap.yaml" || fail "no-swap OEM config must disable active swap"
 
 order_before() {
   local file="$1" a="$2" b="$3" la lb

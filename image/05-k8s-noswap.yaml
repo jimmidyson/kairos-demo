@@ -1,0 +1,16 @@
+#cloud-config
+name: "Disable Swap and Set K8s Node Sysctls"
+
+stages:
+  initramfs:
+    - name: "Mask swap target and disable zram"
+      systemctl:
+        mask:
+          - swap.target
+          - systemd-zram-setup@zram0.service
+      sysctl:
+        vm.swappiness: "0"
+  boot:
+    - name: "Ensure all swap devices are off before kubelet starts"
+      commands:
+        - swapoff -a
