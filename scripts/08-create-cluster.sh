@@ -146,8 +146,8 @@ print(json.dumps([{
                 },
                 "jsonPatches": [{
                     "op": "add",
-                    "path": "/spec/template/spec/kubeadmConfigSpec/files",
-                    "value": [hostname_file],
+                    "path": "/spec/template/spec/kubeadmConfigSpec/files/-",
+                    "value": hostname_file,
                 }],
             },
             {
@@ -160,8 +160,8 @@ print(json.dumps([{
                 },
                 "jsonPatches": [{
                     "op": "add",
-                    "path": "/spec/template/spec/files",
-                    "value": [hostname_file],
+                    "path": "/spec/template/spec/files/-",
+                    "value": hostname_file,
                 }],
             },
         ],
