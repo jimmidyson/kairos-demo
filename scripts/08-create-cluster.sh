@@ -54,7 +54,7 @@ kubectl apply --server-side --force-conflicts -f "https://github.com/nutanix-clo
 # Add the factory node preparation as a ClusterClass inline patch. The
 # topology version is resolved by CAPI for each generated template, so this
 # remains correct during in-place upgrades as well as initial provisioning.
-prepare_patch_name="kairos-prepare-capi-node"
+prepare_patch_name="kairos-prepare-kubernetes-node"
 if ! kubectl get clusterclass nutanix-quick-start -o jsonpath='{.spec.patches[*].name}' | grep -qw "${prepare_patch_name}"; then
   prepare_patch_json="$(PREFIX="${PREFIX}" python3 - <<'PY'
 import json
@@ -73,13 +73,13 @@ worker_patch = {
 }
 control_plane_value_from = {
     "template": (
-        "prepare-capi-node --registry %s --kubernetes-version "
+        "prepare-kubernetes-node --registry %s --kubernetes-version "
         "{{ .builtin.controlPlane.version }}"
     ) % prefix,
 }
 worker_value_from = {
     "template": (
-        "prepare-capi-node --registry %s --kubernetes-version "
+        "prepare-kubernetes-node --registry %s --kubernetes-version "
         "{{ .builtin.machineDeployment.version }}"
     ) % prefix,
 }
@@ -89,7 +89,7 @@ print(json.dumps([{
     "op": "add",
     "path": "/spec/patches/-",
     "value": {
-        "name": "kairos-prepare-capi-node",
+        "name": "kairos-prepare-kubernetes-node",
         "definitions": [
             {
                 "selector": {

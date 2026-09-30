@@ -16,7 +16,7 @@ def prepare_command(prefix: str, version: str) -> str:
         raise SystemExit(f"invalid image prefix: {prefix}")
     if not _VERSION.fullmatch(version):
         raise SystemExit(f"invalid kubernetes version: {version}")
-    return f"prepare-capi-node --registry {prefix} --kubernetes-version {version}"
+    return f"prepare-kubernetes-node --registry {prefix} --kubernetes-version {version}"
 
 
 def _rolling(max_surge: int, max_unavailable: Optional[int]) -> dict:

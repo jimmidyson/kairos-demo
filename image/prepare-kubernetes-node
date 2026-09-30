@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Apply the known containerd + kubernetes sysext set so CABPK can run kubeadm.
-# Usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]
+# Usage: prepare-kubernetes-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]
 set -euo pipefail
 
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.4.0}"
 EXTENSIONS_REL="var/lib/kairos/extensions"
-SET_NAME="capi-node.set"
+SET_NAME="kubernetes-node.set"
 PAUSE_IMAGE_TAG="${PAUSE_IMAGE_TAG:-3.10}"
 
 detect_os() {
@@ -77,12 +77,12 @@ already_applied() {
 }
 
 _root() {
-  printf '%s\n' "${PREPARE_CAPI_NODE_ROOT:-}"
+  printf '%s\n' "${PREPARE_KUBERNETES_NODE_ROOT:-}"
 }
 
 _log() {
-  [[ -n "${PREPARE_CAPI_NODE_LOG:-}" ]] || return 0
-  printf '%s\n' "$1" >>"${PREPARE_CAPI_NODE_LOG}"
+  [[ -n "${PREPARE_KUBERNETES_NODE_LOG:-}" ]] || return 0
+  printf '%s\n' "$1" >>"${PREPARE_KUBERNETES_NODE_LOG}"
 }
 
 _extensions_dir() {
@@ -100,7 +100,7 @@ _pull_sysext() {
   ext="$(_extensions_dir)"
   _log "pull ${ref}"
   mkdir -p "${ext}"
-  if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
+  if [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]]; then
     printf 'test-sysext %s\n' "${ref}" >"${ext}/${name}-${ref##*:}.sysext.raw"
     return 0
   fi
@@ -112,7 +112,7 @@ _pull_sysext() {
 }
 
 _refresh_sysext() {
-  if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
+  if [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]]; then
     return 0
   fi
   systemd-sysext refresh
@@ -167,19 +167,19 @@ EOF
 
 _stop_kubelet() {
   _log "stop kubelet"
-  [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]] && return 0
+  [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]] && return 0
   systemctl stop kubelet 2>/dev/null || true
 }
 
 _stop_containerd() {
   _log "stop containerd"
-  [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]] && return 0
+  [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]] && return 0
   systemctl stop containerd 2>/dev/null || true
 }
 
 _start_runtime() {
   _log "start runtime"
-  [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]] && return 0
+  [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]] && return 0
   systemctl enable --now containerd
   systemctl enable --now kubelet
 }
@@ -189,7 +189,7 @@ _restart_if_stopped() {
   _start_runtime || true
 }
 
-prepare-capi-node-main() {
+prepare-kubernetes-node-main() {
   local registry="" ver="" os="" arch="" pause_flag="" containerd_ver="${CONTAINERD_VERSION}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -200,7 +200,7 @@ prepare-capi-node-main() {
       --arch) arch="${2:-}"; shift 2 ;;
       --pause-tag) pause_flag="${2:-}"; shift 2 ;;
       -h | --help)
-        printf 'usage: prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]\n' >&2
+        printf 'usage: prepare-kubernetes-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]\n' >&2
         return 2
         ;;
       *)
@@ -235,7 +235,7 @@ prepare-capi-node-main() {
   k8s_name="kubernetes"
 
   if already_applied "${setfile}" "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}"; then
-    printf 'prepare-capi-node: already applied %s %s %s\n' "${os}" "${arch}" "${ver}"
+    printf 'prepare-kubernetes-node: already applied %s %s %s\n' "${os}" "${arch}" "${ver}"
     return 0
   fi
 
@@ -272,9 +272,9 @@ prepare-capi-node-main() {
   _write_containerd_config "${registry}"
   _start_runtime || return 1
   _stopped=0
-  printf 'prepare-capi-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
+  printf 'prepare-kubernetes-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  prepare-capi-node-main "$@"
+  prepare-kubernetes-node-main "$@"
 fi

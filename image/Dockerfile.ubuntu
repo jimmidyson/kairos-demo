@@ -35,8 +35,8 @@ RUN --mount=type=bind,source=image,target=/mnt/image \
     --mount=type=secret,id=ubuntu-pro-token,target=/run/secrets/ubuntu-pro-token \
     ["/mnt/image/harden-ubuntu.sh", "/run/secrets/ubuntu-pro-token"]
 
-COPY image/prepare-capi-node /usr/sbin/prepare-capi-node
-RUN chmod 0755 /usr/sbin/prepare-capi-node && mkdir -p /var/lib/kairos/extensions
+COPY image/prepare-kubernetes-node /usr/sbin/prepare-kubernetes-node
+RUN chmod 0755 /usr/sbin/prepare-kubernetes-node && mkdir -p /var/lib/kairos/extensions
 
 # CIS/STIG remove rsync and install chrony. dracut needs rsync.
 # chrony and systemd-timesyncd both provide time-daemon, so only one can be installed.

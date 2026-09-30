@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/scripts/lib.sh"
 
 step_start 9 "In-place upgrade ${KUBERNETES_VERSION_OLD} → ${KUBERNETES_VERSION_NEW}" \
-  "Patch the version. The Runtime Extension SSHes prepare-capi-node and kubeadm. Machine names must stay." \
+  "Patch the version. The Runtime Extension SSHes prepare-kubernetes-node and kubeadm. Machine names must stay." \
   "KubeadmControlPlane + MachineDeployment version"
 
 require_factory_env

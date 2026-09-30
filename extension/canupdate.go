@@ -136,7 +136,7 @@ func RemoteUpgradeScript(registry, version string, controlPlane bool) (string, e
 		upgrade = "sudo kubeadm upgrade apply " + qver + " --yes"
 	}
 	return fmt.Sprintf(`set -euo pipefail
-sudo prepare-capi-node --registry %s --kubernetes-version %s
+sudo prepare-kubernetes-node --registry %s --kubernetes-version %s
 marker=/var/lib/extensions/kubeadm-upgraded
 if [ "$(cat "$marker" 2>/dev/null || true)" = %s ]; then
   exit 0

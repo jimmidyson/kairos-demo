@@ -38,8 +38,8 @@ func TestPlanInPlaceVersionOnly(t *testing.T) {
 	infra := obj(`{"image":{"name":"kairos-ubuntu-24.04-amd64"},"vcpuSockets":1}`)
 	cur := obj(`{"version":"v1.35.8"}`)
 	des := obj(`{"version":"v1.36.4"}`)
-	bootC := obj(`{"preKubeadmCommands":["prepare-capi-node --registry h.example/p --kubernetes-version v1.35.8"]}`)
-	bootD := obj(`{"preKubeadmCommands":["prepare-capi-node --registry h.example/p --kubernetes-version v1.36.4"]}`)
+	bootC := obj(`{"preKubeadmCommands":["prepare-kubernetes-node --registry h.example/p --kubernetes-version v1.35.8"]}`)
+	bootD := obj(`{"preKubeadmCommands":["prepare-kubernetes-node --registry h.example/p --kubernetes-version v1.36.4"]}`)
 	plan, err := PlanInPlace("v1.35.8", "v1.36.4",
 		Doc{infra, infra}, Doc{cur, des}, Doc{bootC, bootD})
 	if err != nil {
@@ -64,8 +64,8 @@ func TestPlanInPlaceRejects(t *testing.T) {
 	baseInfra := obj(`{"image":{"name":"kairos"},"vcpuSockets":1}`)
 	cur := obj(`{"version":"v1.35.8"}`)
 	des := obj(`{"version":"v1.36.4"}`)
-	boot := obj(`{"preKubeadmCommands":["prepare-capi-node --kubernetes-version v1.35.8"]}`)
-	bootNew := obj(`{"preKubeadmCommands":["prepare-capi-node --kubernetes-version v1.36.4"]}`)
+	boot := obj(`{"preKubeadmCommands":["prepare-kubernetes-node --kubernetes-version v1.35.8"]}`)
+	bootNew := obj(`{"preKubeadmCommands":["prepare-kubernetes-node --kubernetes-version v1.36.4"]}`)
 	cases := []struct {
 		name          string
 		infraD, bootD []byte
@@ -73,7 +73,7 @@ func TestPlanInPlaceRejects(t *testing.T) {
 		{"image changed", obj(`{"image":{"name":"other"},"vcpuSockets":1}`), bootNew},
 		{"cpu changed", obj(`{"image":{"name":"kairos"},"vcpuSockets":4}`), bootNew},
 		{"empty image", obj(`{"vcpuSockets":1}`), bootNew},
-		{"command flag", baseInfra, obj(`{"preKubeadmCommands":["prepare-capi-node --kubernetes-version v1.36.4 --extra"]}`)},
+		{"command flag", baseInfra, obj(`{"preKubeadmCommands":["prepare-kubernetes-node --kubernetes-version v1.36.4 --extra"]}`)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,7 +113,7 @@ func TestPlanInPlaceTemplateImage(t *testing.T) {
 
 func TestRegistryFromCommands(t *testing.T) {
 	t.Parallel()
-	raw := obj(`{"preKubeadmCommands":["prepare-capi-node --registry harbor.example/proj --kubernetes-version v1.35.8"]}`)
+	raw := obj(`{"preKubeadmCommands":["prepare-kubernetes-node --registry harbor.example/proj --kubernetes-version v1.35.8"]}`)
 	if got := RegistryFromCommands(raw); got != "harbor.example/proj" {
 		t.Fatalf("got %q", got)
 	}

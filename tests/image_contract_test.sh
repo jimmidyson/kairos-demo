@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 grep -q 'kubeadm init' "${ROOT}/image/cloud-config.yaml" && fail "OEM cloud-config must not kubeadm init"
-grep -q 'prepare-capi-node' "${ROOT}/image/cloud-config.yaml" && fail "OEM must not call prepare-capi-node; CAPI preKubeadmCommands owns that"
+grep -q 'prepare-kubernetes-node' "${ROOT}/image/cloud-config.yaml" && fail "OEM must not call prepare-kubernetes-node; CAPI preKubeadmCommands owns that"
 grep -q 'nkpadmin' "${ROOT}/image/cloud-config.yaml" || fail "missing debug user"
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
@@ -55,7 +55,7 @@ for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   grep -q -- '--skip-step' "${ROOT}/${df}" && fail "${df}: install is one kairos-init command"
   order_before "${ROOT}/${df}" '-s install -m' 'harden-'
   order_before "${ROOT}/${df}" 'harden-' '-s init -m'
-  order_before "${ROOT}/${df}" 'prepare-capi-node' '-s init -m'
+  order_before "${ROOT}/${df}" 'prepare-kubernetes-node' '-s init -m'
   order_before "${ROOT}/${df}" 'harden-' 'rsync'
   order_before "${ROOT}/${df}" 'rsync' '-s init -m'
 done

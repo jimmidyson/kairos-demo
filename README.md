@@ -70,15 +70,15 @@ Optional: `KAIROS_SKIP_DOCKER_CHECK=1` (build on a Docker/BuildKit pair older th
 | 9 | `scripts/09-inplace-upgrade.sh` | Patch version; the extension upgrades the same Machines to v1.36 |
 | 10 | `scripts/10-destroy.sh` | Delete cluster and Prism image (`DESTROY_KIND=1` also drops the management cluster) |
 
-`prepare-capi-node --registry $OCI_REGISTRY/$OCI_REPOSITORY_PREFIX --kubernetes-version v1.35.8` is the only node-local installer. CAPI `preKubeadmCommands` runs it on first boot. Step 7 registers the in-place Runtime Extension; step 9 only patches the Kubernetes version. The extension SSHes `prepare-capi-node` and `kubeadm upgrade`. KubeadmControlPlane `maxSurge` is 0 and the MachineDeployment `maxUnavailable` is 1 so that update can stay on the existing VMs. The extension pod uses the management node's network. On Docker Desktop that is the Linux VM; with `container k8s` it is the Apple container VM. AHV addresses have to be reachable from there.
+`prepare-kubernetes-node --registry $OCI_REGISTRY/$OCI_REPOSITORY_PREFIX --kubernetes-version v1.35.8` is the only node-local installer. CAPI `preKubeadmCommands` runs it on first boot. Step 7 registers the in-place Runtime Extension; step 9 only patches the Kubernetes version. The extension SSHes `prepare-kubernetes-node` and `kubeadm upgrade`. KubeadmControlPlane `maxSurge` is 0 and the MachineDeployment `maxUnavailable` is 1 so that update can stay on the existing VMs. The extension pod uses the management node's network. On Docker Desktop that is the Linux VM; with `container k8s` it is the Apple container VM. AHV addresses have to be reachable from there.
 
-FIPS packages are installed between `kairos-init -s install` and `-s init`, and `fips=1` is appended to `/etc/default/grub` before the UKI is built. The `cri` sysext is compiled on the matching distro image (`ubuntu:24.04`, `rockylinux:9`), not the Kairos image. containerd, runc, and CNI plugins are built with `GOFIPS140=certified`. Kubeadm image names and tags, including pause, come from `kubeadm config images list` and are pushed as a manifest list. `prepare-capi-node` reads `/usr/lib/kairos/pause-tag` from the kubernetes sysext and writes a containerd 2 sandbox pin.
+FIPS packages are installed between `kairos-init -s install` and `-s init`, and `fips=1` is appended to `/etc/default/grub` before the UKI is built. The `cri` sysext is compiled on the matching distro image (`ubuntu:24.04`, `rockylinux:9`), not the Kairos image. containerd, runc, and CNI plugins are built with `GOFIPS140=certified`. Kubeadm image names and tags, including pause, come from `kubeadm config images list` and are pushed as a manifest list. `prepare-kubernetes-node` reads `/usr/lib/kairos/pause-tag` from the kubernetes sysext and writes a containerd 2 sandbox pin.
 
 ## Checks (not a cluster e2e)
 
 ```bash
 bash tests/lib_test.sh
-bash tests/prepare-capi-node_test.sh
+bash tests/prepare-kubernetes-node_test.sh
 bash tests/image_contract_test.sh
 bash tests/sysext_names_test.sh
 bash tests/k8s_images_list_test.sh
