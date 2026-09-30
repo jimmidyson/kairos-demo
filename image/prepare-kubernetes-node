@@ -146,6 +146,16 @@ _containerd_dir() {
   fi
 }
 
+_kubeadm_patches_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/etc/kubernetes/patches\n' "${r}"
+  else
+    printf '/etc/kubernetes/patches\n'
+  fi
+}
+
 _write_containerd_config() {
   local registry="$1" dir img
   dir="$(_containerd_dir)"
@@ -233,6 +243,9 @@ prepare-kubernetes-node-main() {
   setfile="${ext}/${SET_NAME}"
   containerd_name="containerd"
   k8s_name="kubernetes"
+  # kubeadm always stats this directory when applying static-pod patches. The
+  # directory is intentionally empty until a caller supplies patch files.
+  mkdir -p "$(_kubeadm_patches_dir)"
 
   if already_applied "${setfile}" "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}"; then
     printf 'prepare-kubernetes-node: already applied %s %s %s\n' "${os}" "${arch}" "${ver}"
@@ -270,6 +283,9 @@ prepare-kubernetes-node-main() {
     _read_pause_tag
   fi
   _write_containerd_config "${registry}"
+  # kubeadm always stats this directory when applying static-pod patches. The
+  # directory is intentionally empty until a caller supplies patch files.
+  mkdir -p "$(_kubeadm_patches_dir)"
   _start_runtime || return 1
   _stopped=0
   printf 'prepare-kubernetes-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
