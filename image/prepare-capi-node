@@ -59,7 +59,7 @@ kubernetes_ref() {
 
 set_file_contents() {
   local registry="$1" os="$2" arch="$3" ver="$4" containerd_ver="${5:-${CONTAINERD_VERSION}}"
-  printf 'registry=%s\nos=%s\narch=%s\ncontainerd=%s\nkubernetes=%s\n' "${registry}" "${os}" "${arch}" "${containerd_ver}" "${ver}"
+  printf 'registry=%s\nos=%s\narch=%s\ncontainerd=%s\ncontainerd_cgroup=systemd\nkubernetes=%s\n' "${registry}" "${os}" "${arch}" "${containerd_ver}" "${ver}"
 }
 
 _set_field() {
@@ -101,7 +101,7 @@ _pull_sysext() {
   _log "pull ${ref}"
   mkdir -p "${ext}"
   if [[ -n "${PREPARE_CAPI_NODE_ROOT:-}" ]]; then
-    printf 'test-sysext %s\n' "${ref}" >"${ext}/${name}.sysext.raw"
+    printf 'test-sysext %s\n' "${ref}" >"${ext}/${name}-${ref##*:}.sysext.raw"
     return 0
   fi
 
@@ -146,25 +146,22 @@ _containerd_dir() {
   fi
 }
 
-_write_containerd_sandbox() {
+_write_containerd_config() {
   local registry="$1" dir img
   dir="$(_containerd_dir)"
   img="$(_sandbox_image "${registry}")"
   mkdir -p "${dir}/conf.d"
-  if [[ -z "${PREPARE_CAPI_NODE_ROOT:-}" ]] && command -v containerd >/dev/null 2>&1; then
-    containerd config default >"${dir}/config.toml"
-  fi
-  if [[ ! -f "${dir}/config.toml" ]] || ! grep -q 'conf.d' "${dir}/config.toml"; then
-    cat >"${dir}/config.toml" <<'EOF'
-version = 3
-imports = ["/etc/containerd/conf.d/*.toml"]
-EOF
-  fi
   cat >"${dir}/conf.d/capi-sandbox.toml" <<EOF
-version = 3
+version = 4
 
 [plugins.'io.containerd.cri.v1.images'.pinned_images]
   sandbox = "${img}"
+EOF
+  cat >"${dir}/conf.d/cgroup.toml" <<'EOF'
+version = 4
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  SystemdCgroup = true
 EOF
 }
 
@@ -272,7 +269,7 @@ prepare-capi-node-main() {
   if [[ -z "${pause_flag}" ]]; then
     _read_pause_tag
   fi
-  _write_containerd_sandbox "${registry}"
+  _write_containerd_config "${registry}"
   _start_runtime || return 1
   _stopped=0
   printf 'prepare-capi-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"

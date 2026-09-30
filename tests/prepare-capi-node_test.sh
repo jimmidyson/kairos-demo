@@ -43,9 +43,14 @@ prepare-capi-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubu
 
 [[ "$(detect_os $'ID=rhel\nVERSION_ID=\"9.4\"')" == "rhel-9" ]] || fail "rhel 9"
 
+grep -q '^version = 4$' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "containerd sandbox drop-in version"
 grep -q "io.containerd.cri.v1.images" "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "containerd 2 sandbox key"
 grep -q 'sandbox = "' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "sandbox pin"
-grep -q 'conf.d' "${tmpdir}/etc/containerd/config.toml" || fail "containerd imports conf.d"
+grep -q '^version = 4$' "${tmpdir}/etc/containerd/conf.d/cgroup.toml" || fail "containerd cgroup drop-in version"
+grep -q "io.containerd.cri.v1.runtime" "${tmpdir}/etc/containerd/conf.d/cgroup.toml" || fail "containerd 2 cgroup key"
+grep -q 'SystemdCgroup = true' "${tmpdir}/etc/containerd/conf.d/cgroup.toml" || fail "containerd systemd cgroup"
+[[ ! -e "${tmpdir}/etc/containerd/config.toml" ]] || fail "prepare-capi-node must not create containerd config"
+grep -q 'containerd_cgroup=systemd' "${tmpdir}/var/lib/kairos/extensions/capi-node.set" || fail "systemd cgroup state"
 
 log="${tmpdir}/actions.log"
 : >"${log}"
