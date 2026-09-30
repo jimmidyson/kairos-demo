@@ -22,7 +22,15 @@ RUN --mount=type=bind,from=kairos-init,source=/kairos-init,target=/kairos-init \
 RUN mkdir -p /etc/sysctl.d && printf '%s\n' \
       'net.ipv4.ip_forward = 1' \
       'net.ipv6.conf.all.forwarding = 1' \
-    > /etc/sysctl.d/99-kubernetes-cri.conf
+      'net.bridge.bridge-nf-call-iptables  = 1' \
+      'net.bridge.bridge-nf-call-ip6tables = 1' \
+    > /etc/sysctl.d/99-kubernetes.conf
+
+# Kubernetes/containerd requires these modules; load them automatically at boot.
+RUN mkdir -p /etc/modules-load.d && printf '%s\n' \
+      'overlay' \
+      'br_netfilter' \
+    > /etc/modules-load.d/kubernetes.conf
 
 # Mount the directory so the script is not stored in a layer.
 RUN --mount=type=bind,source=image,target=/mnt/image \
