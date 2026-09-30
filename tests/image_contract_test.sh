@@ -38,6 +38,10 @@ grep -q 'apt-get purge -y systemd-timesyncd' "${ROOT}/image/Dockerfile.ubuntu" |
 for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
   grep -q 'net.ipv4.ip_forward = 1' "${ROOT}/${df}" || fail "${df}: IPv4 forwarding"
   grep -q 'net.ipv6.conf.all.forwarding = 1' "${ROOT}/${df}" || fail "${df}: IPv6 forwarding"
+  grep -q 'net.bridge.bridge-nf-call-iptables  = 1' "${ROOT}/${df}" || fail "${df}: bridge IPv4 netfilter"
+  grep -q 'net.bridge.bridge-nf-call-ip6tables = 1' "${ROOT}/${df}" || fail "${df}: bridge IPv6 netfilter"
+  grep -q 'fs.inotify.max_user_watches = 524288' "${ROOT}/${df}" || fail "${df}: inotify watches"
+  grep -q 'fs.inotify.max_user_instances = 8192' "${ROOT}/${df}" || fail "${df}: inotify instances"
 done
 
 order_before() {

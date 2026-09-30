@@ -24,6 +24,8 @@ RUN mkdir -p /etc/sysctl.d && printf '%s\n' \
       'net.ipv6.conf.all.forwarding = 1' \
       'net.bridge.bridge-nf-call-iptables  = 1' \
       'net.bridge.bridge-nf-call-ip6tables = 1' \
+      'fs.inotify.max_user_watches = 524288' \
+      'fs.inotify.max_user_instances = 8192' \
     > /etc/sysctl.d/99-kubernetes.conf
 
 # Kubernetes/containerd requires these modules; load them automatically at boot.
