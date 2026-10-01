@@ -13,6 +13,11 @@ enable_fips_go() {
   export GOFIPS140=certified
   unset GOTOOLCHAIN
   case "${v}" in
+    1.24.*)
+      # 1.24.13 rejects GOFIPS140=certified. etcd's make pins this toolchain
+      # unless GOTOOLCHAIN is already set.
+      export GOTOOLCHAIN=go1.25.10
+      ;;
     1.25.*)
       patch="${v#1.25.}"
       patch="${patch%%[!0-9]*}"

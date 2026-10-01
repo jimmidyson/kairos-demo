@@ -39,9 +39,18 @@ grep -q 'GOTMPDIR=' "${ROOT}/k8s-images/build.sh" || fail "go compile temps must
 grep -q '_output/local/bin/linux/' "${ROOT}/k8s-images/build.sh" || fail "kube binaries come from the platform output dir"
 grep -q 'build_k8s_bins "${arch}" kube-apiserver kube-controller-manager kube-scheduler kube-proxy' "${ROOT}/k8s-images/build.sh" || fail "one make builds every kubeadm Kubernetes binary"
 grep -q 'WORKDIR}/bin/etcd-${arch}' "${ROOT}/k8s-images/build.sh" || fail "etcd binary must not be the image context path"
+grep -q 'make "build-linux-${arch}"' "${ROOT}/k8s-images/build.sh" || fail "etcd must use its make build-linux target"
+grep -q -- '-buildmode=pie' "${ROOT}/k8s-images/build.sh" && fail "linux PIE sets PT_INTERP; scratch has no ld-linux"
+grep -q 'go build -o "${WORKDIR}/bin/etcd-${arch}"' "${ROOT}/k8s-images/build.sh" && fail "use etcd make build, not a direct go build"
+grep -q 'Requesting program interpreter' "${ROOT}/k8s-images/build.sh" || fail "etcd build must reject a binary that needs ld-linux"
+grep -q 'for b in etcd etcdctl etcdutl' "${ROOT}/k8s-images/build.sh" || fail "etcd image must ship etcdctl and etcdutl"
+grep -q 'COPY etcd etcdctl etcdutl /usr/local/bin/' "${ROOT}/k8s-images/build.sh" || fail "etcd image must copy the tools onto PATH"
+grep -q 'test -x "${WORKDIR}/bin/${b}-${arch}"' "${ROOT}/k8s-images/build.sh" || fail "etcd build must reject a non-executable archive"
 grep -q 'WORKDIR}/bin/coredns-${arch}' "${ROOT}/k8s-images/build.sh" || fail "coredns binary must not be the image context path"
 grep -q 'rm -rf "${ctx}"' "${ROOT}/k8s-images/build.sh" || fail "image context must replace a leftover file"
 
+enable_fips_go 1.24.13
+[[ "${GOTOOLCHAIN}" == "go1.25.10" ]] || fail "1.24.13 has no certified alias, got ${GOTOOLCHAIN:-unset}"
 enable_fips_go 1.25.4
 [[ "${GOFIPS140}" == "certified" ]] || fail "GOFIPS140"
 [[ "${GOTOOLCHAIN}" == "go1.25.10" ]] || fail "1.25.4 toolchain ${GOTOOLCHAIN:-unset}"

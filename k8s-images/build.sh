@@ -81,8 +81,21 @@ build_etcd() {
     export CGO_ENABLED=0 GOOS=linux GOARCH="${arch}"
   fi
   mkdir -p "${WORKDIR}/bin"
-  # server/ is its own module. Not ${WORKDIR}/etcd-${arch}: that path is the image context.
-  (cd "${src}/server" && go build -o "${WORKDIR}/bin/etcd-${arch}" ./etcdmain) </dev/null || return 1
+  # `make build-linux-<arch>` writes bin/etcd, bin/etcdctl, and bin/etcdutl.
+  # ./etcdmain is a library; go build -o on it writes a non-executable archive.
+  # Leave GO_BUILD_FLAGS unset. A Linux position-independent Go binary
+  # still sets PT_INTERP to ld-linux, and a scratch image has no loader.
+  # make echoes recipes on stdout; this function's stdout is only the etcd path.
+  (cd "${src}" && make "build-linux-${arch}") >&2 || return 1
+  local b
+  for b in etcd etcdctl etcdutl; do
+    cp -a "${src}/bin/${b}" "${WORKDIR}/bin/${b}-${arch}" || return 1
+    test -x "${WORKDIR}/bin/${b}-${arch}" || return 1
+    if readelf -l "${WORKDIR}/bin/${b}-${arch}" | grep -q 'Requesting program interpreter'; then
+      printf '%s needs a dynamic linker\n' "${b}" >&2
+      return 1
+    fi
+  done
   printf '%s\n' "${WORKDIR}/bin/etcd-${arch}"
 }
 
@@ -110,11 +123,25 @@ pack_and_push() {
   rm -rf "${ctx}"
   mkdir -p "${ctx}"
   cp "${binpath}" "${ctx}/${binname}"
-  cat >"${ctx}/Dockerfile" <<EOF
+  if [[ "${binname}" == etcd ]]; then
+    local dir
+    dir="$(dirname "${binpath}")"
+    cp "${dir}/etcdctl-${arch}" "${ctx}/etcdctl"
+    cp "${dir}/etcdutl-${arch}" "${ctx}/etcdutl"
+    # PATH so kubeadm and kubectl exec can run etcd, etcdctl, and etcdutl by name.
+    cat >"${ctx}/Dockerfile" <<EOF
+FROM scratch
+COPY etcd etcdctl etcdutl /usr/local/bin/
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENTRYPOINT ["/usr/local/bin/etcd"]
+EOF
+  else
+    cat >"${ctx}/Dockerfile" <<EOF
 FROM scratch
 COPY ${binname} /usr/local/bin/${binname}
 ENTRYPOINT ["/usr/local/bin/${binname}"]
 EOF
+  fi
   local tag="${ref}"
   # shellcheck disable=SC2086
   if [[ "$(echo ${ARCHES} | wc -w | tr -d ' ')" -gt 1 ]]; then
