@@ -6,10 +6,14 @@ grep -q 'kubeadm init' "${ROOT}/image/cloud-config.yaml" && fail "OEM cloud-conf
 grep -q 'prepare-kubernetes-node' "${ROOT}/image/cloud-config.yaml" && fail "OEM must not call prepare-kubernetes-node; CAPI preKubeadmCommands owns that"
 grep -q 'nkpadmin' "${ROOT}/image/cloud-config.yaml" || fail "missing debug user"
 grep -q 'kairos-custom-hostname' "${ROOT}/scripts/08-create-cluster.sh" && fail "hostname is OEM cloud-config, not a kubeadm file"
-grep -q 'ds.meta_data.hostname' "${ROOT}/image/cloud-config.yaml" || fail "hostname must use instance metadata"
-grep -q '127.0.0.1 localhost' "${ROOT}/image/cloud-config.yaml" || fail "hosts must include ipv4 localhost"
-grep -q '127.0.1.1 {{ ds.meta_data.hostname }}' "${ROOT}/image/cloud-config.yaml" || fail "hosts must map the hostname"
-grep -q '::1 localhost ip6-localhost ip6-loopback' "${ROOT}/image/cloud-config.yaml" || fail "hosts must include ipv6 localhost"
+grep -q 'ds.meta_data.hostname' "${ROOT}/image/cloud-config.yaml" && fail "yip has no ds function; cloud-init datasource templates do not render"
+grep -q 'rm -f /etc/hosts' "${ROOT}/scripts/08-create-cluster.sh" || fail "preKubeadmCommands must replace the /etc/hosts symlink"
+grep -q '> /etc/hosts' "${ROOT}/scripts/08-create-cluster.sh" || fail "preKubeadmCommands must write a regular /etc/hosts"
+grep -q '/usr/local/etc/hosts' "${ROOT}/scripts/08-create-cluster.sh" && fail "preKubeadmCommands must not write /usr/local/etc/hosts; sysext makes that path read-only"
+grep -q 'rm -f /etc/hosts' "${ROOT}/image/cloud-config.yaml" || fail "OEM boot must replace the /etc/hosts symlink after userdata is dropped"
+grep -q '127.0.0.1 localhost' "${ROOT}/scripts/08-create-cluster.sh" || fail "hosts must include ipv4 localhost"
+grep -q '127.0.1.1' "${ROOT}/scripts/08-create-cluster.sh" || fail "hosts must map the live hostname"
+grep -q '::1 localhost ip6-localhost ip6-loopback' "${ROOT}/scripts/08-create-cluster.sh" || fail "hosts must include ipv6 localhost"
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 case "${KAIROS_IMAGE_VERSION}" in
@@ -117,9 +121,11 @@ grep -q -F -- 'ref: ${BASE_IMAGE}' "${ROOT}/osartifact/cloud-image.yaml.tpl" || 
 grep -q -F -- 'cloudImage: true' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact still requests a cloud image"
 grep -q 'kubernetesImageRepository' "${ROOT}/capi/cluster.yaml.tpl" || fail "cluster sets kubernetesImageRepository"
 grep -q 'kairos-prepare-kubernetes-node' "${ROOT}/scripts/08-create-cluster.sh" || fail "clusterclass patch prepares the node"
+grep -q 'grep -qw "${prepare_patch_name}"' "${ROOT}/scripts/08-create-cluster.sh" && fail "step 8 must replace an existing prepare patch, not skip it"
+grep -q 'prepare_patch_index' "${ROOT}/scripts/08-create-cluster.sh" || fail "step 8 must find the existing prepare patch index"
 grep -q '{{ .builtin.controlPlane.version }}' "${ROOT}/scripts/08-create-cluster.sh" || fail "control plane prepare uses the topology version"
 grep -q '{{ .builtin.machineDeployment.version }}' "${ROOT}/scripts/08-create-cluster.sh" || fail "worker prepare uses the topology version"
-grep -q 'hostname: "{{ ds.meta_data.hostname }}"' "${ROOT}/image/cloud-config.yaml" || fail "OEM cloud-config must set the hostname at boot"
+grep -q 'hostname:' "${ROOT}/image/cloud-config.yaml" && fail "OEM must not set hostname; yip cannot see the CAPI node name"
 # CABPK userdata is stage-less, so yip reapplies it on every boot stage.
 # fs runs before boot; drop the saved file once kubeadm has succeeded.
 grep -q '/etc/kubernetes/kubelet.conf' "${ROOT}/image/cloud-config.yaml" || fail "OEM must keep CABPK userdata until kubelet.conf exists"

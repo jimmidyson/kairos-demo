@@ -1,6 +1,11 @@
 #cloud-config
 # OEM config baked into the cloud disk. CABPK supplies kubeadm.
 # Do not run kubeadm here.
+# Do not set the hostname here. yip has no cloud-init ds template.
+# /etc/hosts starts as a symlink to /usr/local/etc/hosts. systemd-sysext
+# then covers /usr/local with a read-only /usr overlay, so writes through
+# the symlink fail. The boot stage below, and the ClusterClass
+# preKubeadmCommand, replace the symlink with a regular /etc/hosts.
 
 name: "capi-kairos-base"
 
@@ -77,19 +82,10 @@ stages:
       if: '[ -f /etc/kubernetes/kubelet.conf ] && [ -f /oem/95_userdata/userdata.yaml ]'
       commands:
         - rm -f /oem/95_userdata/userdata.yaml
+  # Runs on every boot, including after userdata.yaml is removed.
+  # On first boot this is before hostnamectl; the preKubeadmCommand rewrites
+  # /etc/hosts again once the CAPI name is set.
   boot:
-    - name: "Apply native hostname"
-      hostname: "{{ ds.meta_data.hostname }}"
-      files:
-        - path: /etc/hosts
-          permissions: 0644
-          owner: 0
-          group: 0
-          content: |
-            127.0.0.1 localhost
-            127.0.1.1 {{ ds.meta_data.hostname }}
-            ::1 localhost ip6-localhost ip6-loopback
-            fe00::0 ip6-localnet
-            ff00::0 ip6-mcastprefix
-            ff02::1 ip6-allnodes
-            ff02::2 ip6-allrouters
+    - name: "Replace dangling /etc/hosts symlink"
+      commands:
+        - rm -f /etc/hosts; hn=$(hostnamectl --static 2>/dev/null || hostname); printf '%s\n' '127.0.0.1 localhost' "127.0.1.1 ${hn}" '::1 localhost ip6-localhost ip6-loopback' 'fe00::0 ip6-localnet' 'ff00::0 ip6-mcastprefix' 'ff02::1 ip6-allnodes' 'ff02::2 ip6-allrouters' > /etc/hosts

@@ -40,17 +40,34 @@ EOF
 # and workerConfig below; do not apply local machine-template overrides here.
 kubectl apply --server-side --force-conflicts -f "https://github.com/nutanix-cloud-native/cluster-api-runtime-extensions-nutanix/releases/download/${CAREN_VERSION}/nutanix-cluster-class.yaml"
 
-# Add the factory node preparation as a ClusterClass inline patch. The
-# topology version is resolved by CAPI for each generated template, so this
-# remains correct during in-place upgrades as well as initial provisioning.
+# Install or replace the factory node preparation patch. Reapplying the
+# CAREN ClusterClass leaves a previously added patch in place, and skipping
+# when the name exists would keep a stale command list.
 prepare_patch_name="kairos-prepare-kubernetes-node"
-if ! kubectl get clusterclass nutanix-quick-start -o jsonpath='{.spec.patches[*].name}' | grep -qw "${prepare_patch_name}"; then
-  prepare_patch_json="$(jq -nc --arg prefix "${PREFIX}" '
+prepare_patch_index="$(kubectl get clusterclass nutanix-quick-start -o json | jq -r --arg name "${prepare_patch_name}" '
+  [(.spec.patches // []) | to_entries[] | select(.value.name == $name) | .key] | first // ""
+')"
+if [[ -n "${prepare_patch_index}" ]]; then
+  prepare_patch_op="replace"
+  prepare_patch_path="/spec/patches/${prepare_patch_index}"
+else
+  prepare_patch_op="add"
+  prepare_patch_path="/spec/patches/-"
+fi
+prepare_patch_json="$(jq -nc \
+  --arg prefix "${PREFIX}" \
+  --arg op "${prepare_patch_op}" \
+  --arg path "${prepare_patch_path}" '
     def cmd($version):
       "prepare-kubernetes-node --registry \($prefix) --kubernetes-version \($version)";
+    # Appended after the provider hostnamectl command, before kubeadm.
+    # Kairos symlinks /etc/hosts at a path systemd-sysext then covers with a
+    # read-only /usr overlay. Remove the symlink and write a regular file.
+    def hosts:
+      "rm -f /etc/hosts; hn=$(hostnamectl --static 2>/dev/null || hostname); printf \"%s\\n\" \"127.0.0.1 localhost\" \"127.0.1.1 $hn\" \"::1 localhost ip6-localhost ip6-loopback\" \"fe00::0 ip6-localnet\" \"ff00::0 ip6-mcastprefix\" \"ff02::1 ip6-allnodes\" \"ff02::2 ip6-allrouters\" > /etc/hosts";
     [{
-      op: "add",
-      path: "/spec/patches/-",
+      op: $op,
+      path: $path,
       value: {
         name: "kairos-prepare-kubernetes-node",
         definitions: [
@@ -60,12 +77,15 @@ if ! kubectl get clusterclass nutanix-quick-start -o jsonpath='{.spec.patches[*]
               kind: "KubeadmControlPlaneTemplate",
               matchResources: {controlPlane: true}
             },
-            jsonPatches: [{
-              op: "add",
-              path: "/spec/template/spec/kubeadmConfigSpec/preKubeadmCommands/-",
-              value: null,
-              valueFrom: {template: cmd("{{ .builtin.controlPlane.version }}")}
-            }]
+            jsonPatches: [
+              {op: "add", path: "/spec/template/spec/kubeadmConfigSpec/preKubeadmCommands/-", value: hosts},
+              {
+                op: "add",
+                path: "/spec/template/spec/kubeadmConfigSpec/preKubeadmCommands/-",
+                value: null,
+                valueFrom: {template: cmd("{{ .builtin.controlPlane.version }}")}
+              }
+            ]
           },
           {
             selector: {
@@ -73,19 +93,21 @@ if ! kubectl get clusterclass nutanix-quick-start -o jsonpath='{.spec.patches[*]
               kind: "KubeadmConfigTemplate",
               matchResources: {machineDeploymentClass: {names: ["*"]}}
             },
-            jsonPatches: [{
-              op: "add",
-              path: "/spec/template/spec/preKubeadmCommands/-",
-              value: null,
-              valueFrom: {template: cmd("{{ .builtin.machineDeployment.version }}")}
-            }]
+            jsonPatches: [
+              {op: "add", path: "/spec/template/spec/preKubeadmCommands/-", value: hosts},
+              {
+                op: "add",
+                path: "/spec/template/spec/preKubeadmCommands/-",
+                value: null,
+                valueFrom: {template: cmd("{{ .builtin.machineDeployment.version }}")}
+              }
+            ]
           }
         ]
       }
     }]
   ')"
-  kubectl patch clusterclass nutanix-quick-start --type=json -p "${prepare_patch_json}"
-fi
+kubectl patch clusterclass nutanix-quick-start --type=json -p "${prepare_patch_json}"
 
 CLUSTER_NAME="kairos-capi"
 export CLUSTER_NAME KUBERNETES_VERSION PREFIX
