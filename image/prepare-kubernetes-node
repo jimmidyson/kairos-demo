@@ -6,7 +6,6 @@ set -euo pipefail
 CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.4.0}"
 EXTENSIONS_REL="var/lib/kairos/extensions"
 SET_NAME="kubernetes-node.set"
-PAUSE_IMAGE_TAG="${PAUSE_IMAGE_TAG:-3.10}"
 
 detect_os() {
   local text="${1:-$(cat /etc/os-release 2>/dev/null || true)}"
@@ -131,16 +130,23 @@ _refresh_sysext() {
 }
 
 _read_pause_tag() {
-  local f r
+  local f r tag
   r="$(_root)"
   if [[ -n "${r}" ]]; then
     f="${r}/usr/lib/kairos/pause-tag"
   else
     f=/usr/lib/kairos/pause-tag
   fi
-  if [[ -f "${f}" ]]; then
-    PAUSE_IMAGE_TAG="$(tr -d '[:space:]' <"${f}")"
+  if [[ ! -f "${f}" ]]; then
+    printf 'missing %s after sysext refresh\n' "${f}" >&2
+    return 1
   fi
+  tag="$(tr -d '[:space:]' <"${f}")"
+  if [[ -z "${tag}" ]]; then
+    printf 'empty pause tag in %s\n' "${f}" >&2
+    return 1
+  fi
+  PAUSE_IMAGE_TAG="${tag}"
 }
 
 _sandbox_image() {
@@ -281,7 +287,10 @@ prepare-kubernetes-node-main() {
     return 1
   }
   if [[ -z "${pause_flag}" ]]; then
-    _read_pause_tag
+    _read_pause_tag || {
+      _restart_if_stopped
+      return 1
+    }
   fi
   _write_containerd_config "${registry}"
   _start_runtime || return 1

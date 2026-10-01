@@ -27,6 +27,14 @@ if prepare-kubernetes-node-main 2>/tmp/pcn-err; then
 fi
 grep -q -- '--registry' /tmp/pcn-err || fail "missing --registry message: $(cat /tmp/pcn-err)"
 
+if prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubuntu-24.04 --arch amd64 2>/tmp/pcn-err; then
+  fail "missing pause-tag must fail"
+fi
+grep -q 'pause-tag' /tmp/pcn-err || fail "missing pause-tag message: $(cat /tmp/pcn-err)"
+[[ ! -f "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" ]] || fail "set file written without pause tag"
+
+mkdir -p "${tmpdir}/usr/lib/kairos"
+printf '3.10.2\n' >"${tmpdir}/usr/lib/kairos/pause-tag"
 prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubuntu-24.04 --arch amd64
 [[ -f "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" ]] || fail "set file not written"
 [[ -d "${tmpdir}/etc/kubernetes/patches" ]] || fail "kubeadm patches directory"
@@ -69,6 +77,17 @@ mkdir -p "${tmpdir}/usr/lib/kairos"
 printf '3.10.1\n' >"${tmpdir}/usr/lib/kairos/pause-tag"
 prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.6 --os ubuntu-24.04 --arch amd64
 grep -q 'pause:3.10.1' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "pause tag from sysext file"
+
+rm -f "${tmpdir}/usr/lib/kairos/pause-tag"
+setfile="${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set"
+before="$(cat "${setfile}")"
+sandbox_before="$(cat "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml")"
+if prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.8 --os ubuntu-24.04 --arch amd64 2>/tmp/pcn-err; then
+  fail "upgrade without pause-tag must fail"
+fi
+[[ "$(cat "${setfile}")" == "${before}" ]] || fail "set file updated without pause tag"
+[[ "$(cat "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml")" == "${sandbox_before}" ]] || fail "sandbox pin changed without pause tag"
+printf '3.10.1\n' >"${tmpdir}/usr/lib/kairos/pause-tag"
 
 setfile="${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set"
 before="$(cat "${setfile}")"
