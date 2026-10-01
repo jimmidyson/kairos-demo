@@ -31,8 +31,8 @@ This repo is a half-migrated Kairos demo. It does not produce a disk image that 
 
 A human can run `./demo.sh` (or the individual step scripts) and see:
 
-1. Six FIPS Kairos cloud disks built (3 OS × 2 arch) and pushed where relevant.
-2. Six `cri` sysexts and four `kubernetes` sysexts pushed.
+1. FIPS Kairos cloud disk for the cluster OS built and pushed. Default is Ubuntu 24.04 amd64; `OSES` and `ARCHES` still select Ubuntu 22.04, Rocky 9, and arm64.
+2. containerd and kubernetes sysexts for the selected OS/arch pairs pushed.
 3. FIPS kubeadm images for v1.35.x and v1.36.x pushed.
 4. Ubuntu 24.04 amd64 disk uploaded to Prism.
 5. KIND hosting CAPI + CABPK + CAPX + CAAPH + our in-place extension.

@@ -1,6 +1,6 @@
 # Kairos CAPI FIPS factory
 
-Builds hardened Kairos OS disks (Ubuntu 22.04, 24.04, Rocky 9 × amd64/arm64), runtime **sysexts** for CRI and Kubernetes, and FIPS-rebuilt kubeadm images. A stepped script stands up a CAPX cluster on Nutanix and in-place upgrades v1.35 → v1.36. The management cluster is KIND, or `container k8s` on macOS when Apple's `container` CLI is installed.
+Builds the hardened Kairos OS disk the cluster boots (Ubuntu 24.04 amd64 by default; set `OSES` and `ARCHES` for Ubuntu 22.04, Rocky 9, or arm64), runtime **sysexts** for containerd and Kubernetes, and FIPS-rebuilt kubeadm images. A stepped script stands up a CAPX cluster on Nutanix and in-place upgrades v1.35 → v1.36. The management cluster is KIND, or `container k8s` on macOS when Apple's `container` CLI is installed.
 
 **OS hardening (best-effort in an image build):**
 

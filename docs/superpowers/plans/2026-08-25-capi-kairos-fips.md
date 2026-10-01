@@ -15,7 +15,7 @@ The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, 
 - CABPK only; no Kairos k8s provider; no OEM `kubeadm init`.
 - `GOFIPS140=certified` (not `latest`); Go 1.25.10+ / 1.26.3+ / 1.27+ or pin `v1.0.0`.
 - Kubernetes: `v1.35.8` and `v1.36.4` (override via env).
-- OS: ubuntu-22.04, ubuntu-24.04, rocky-9. Arch: amd64, arm64.
+- OS/arch default to what the cluster boots: ubuntu-24.04 amd64. Override `OSES` / `ARCHES` for ubuntu-22.04, rocky-9, and arm64.
 - `cri` sysext per OS×arch (dynamic containerd). `kubernetes` sysext per ver×arch.
 - Sysexts not baked into the disk. `--registry` is `${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}`.
 - Registry is existing Harbor; do not start a local registry.

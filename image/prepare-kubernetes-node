@@ -71,9 +71,9 @@ _set_field() {
 }
 
 already_applied() {
-  local setfile="$1" registry="$2" os="$3" arch="$4" ver="$5"
+  local setfile="$1" registry="$2" os="$3" arch="$4" ver="$5" containerd_ver="${6:-${CONTAINERD_VERSION}}"
   [[ -f "${setfile}" ]] || return 1
-  [[ "$(cat "${setfile}")" == "$(set_file_contents "${registry}" "${os}" "${arch}" "${ver}")" ]]
+  [[ "$(cat "${setfile}")" == "$(set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}")" ]]
 }
 
 _root() {
@@ -92,6 +92,18 @@ _extensions_dir() {
     printf '%s/%s\n' "${r}" "${EXTENSIONS_REL}"
   else
     printf '/%s\n' "${EXTENSIONS_REL}"
+  fi
+}
+
+# kubeadm stats this directory while applying static-pod patches. It stays
+# empty until a caller supplies patch files.
+_kubeadm_patches_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/etc/kubernetes/patches\n' "${r}"
+  else
+    printf '/etc/kubernetes/patches\n'
   fi
 }
 
@@ -264,7 +276,6 @@ prepare-kubernetes-node-main() {
   if [[ "${containerd_changing}" -eq 1 ]]; then
     _stop_containerd
   fi
-  set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}" >"${setfile}"
   _refresh_sysext || {
     _restart_if_stopped
     return 1
@@ -273,11 +284,11 @@ prepare-kubernetes-node-main() {
     _read_pause_tag
   fi
   _write_containerd_config "${registry}"
-  # kubeadm always stats this directory when applying static-pod patches. The
-  # directory is intentionally empty until a caller supplies patch files.
-  mkdir -p "$(_kubeadm_patches_dir)"
   _start_runtime || return 1
   _stopped=0
+  # Record success only after refresh and start. A failed refresh must not
+  # look already-applied on the next run.
+  set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}" >"${setfile}"
   printf 'prepare-kubernetes-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
 }
 

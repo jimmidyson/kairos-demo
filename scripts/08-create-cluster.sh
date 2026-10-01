@@ -117,61 +117,6 @@ PY
   kubectl patch clusterclass nutanix-quick-start --type=json -p "${prepare_patch_json}"
 fi
 
-# Deliver the hostname cloud-config through CABPK's kubeadm files field. This
-# is intentionally not part of the baked OEM cloud-config: CABPK owns the
-# machine-specific file and templates the instance metadata expression before
-# Kairos reads it during boot.
-hostname_patch_name="kairos-custom-hostname"
-if ! kubectl get clusterclass nutanix-quick-start -o jsonpath='{.spec.patches[*].name}' | grep -qw "${hostname_patch_name}"; then
-  hostname_patch_json="$(python3 - <<'PY'
-import json
-
-hostname_file = {
-    "path": "/usr/local/cloud-config/99-custom-hostname.yaml",
-    "owner": "root:root",
-    "permissions": "0644",
-    "content": """name: \"set-native-hostname\"\nstages:\n  boot:\n    - name: \"Apply native hostname\"\n      # CABPK templates this before Kairos reads it\n      hostname: \"{{ ds.meta_data.hostname }}\"\n""",
-}
-print(json.dumps([{
-    "op": "add",
-    "path": "/spec/patches/-",
-    "value": {
-        "name": "kairos-custom-hostname",
-        "definitions": [
-            {
-                "selector": {
-                    "apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
-                    "kind": "KubeadmControlPlaneTemplate",
-                    "matchResources": {"controlPlane": True},
-                },
-                "jsonPatches": [{
-                    "op": "add",
-                    "path": "/spec/template/spec/kubeadmConfigSpec/files/-",
-                    "value": hostname_file,
-                }],
-            },
-            {
-                "selector": {
-                    "apiVersion": "bootstrap.cluster.x-k8s.io/v1beta2",
-                    "kind": "KubeadmConfigTemplate",
-                    "matchResources": {
-                        "machineDeploymentClass": {"names": ["*"]},
-                    },
-                },
-                "jsonPatches": [{
-                    "op": "add",
-                    "path": "/spec/template/spec/files/-",
-                    "value": hostname_file,
-                }],
-            },
-        ],
-    },
-}]))
-PY
-)"
-  kubectl patch clusterclass nutanix-quick-start --type=json -p "${hostname_patch_json}"
-fi
-
 CLUSTER_NAME="kairos-capi"
 export CLUSTER_NAME KUBERNETES_VERSION PREFIX
 envsubst '${CLUSTER_NAME} ${KUBERNETES_VERSION} ${PREFIX}' <"${ROOT}/capi/cluster.yaml.tpl" | kubectl apply --server-side -f -

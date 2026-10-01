@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib.sh
 source "${ROOT}/scripts/lib.sh"
 
-step_start 2 "Build FIPS Kairos bases (3 OS × 2 arch)" \
+step_start 2 "Build FIPS Kairos bases (${OSES} / ${ARCHES})" \
   "kairos-init install, then FIPS + CIS L1 + STIG, then kairos-init init. No kubeadm in the disk." \
   "$(image_prefix)/base:<os>-<arch>"
 

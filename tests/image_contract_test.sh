@@ -5,8 +5,11 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 grep -q 'kubeadm init' "${ROOT}/image/cloud-config.yaml" && fail "OEM cloud-config must not kubeadm init"
 grep -q 'prepare-kubernetes-node' "${ROOT}/image/cloud-config.yaml" && fail "OEM must not call prepare-kubernetes-node; CAPI preKubeadmCommands owns that"
 grep -q 'nkpadmin' "${ROOT}/image/cloud-config.yaml" || fail "missing debug user"
-grep -q '/usr/local/cloud-config/99-custom-hostname.yaml' "${ROOT}/scripts/08-create-cluster.sh" || fail "kubeadm patch must deliver custom hostname cloud-config"
-grep -q 'ds.meta_data.hostname' "${ROOT}/scripts/08-create-cluster.sh" || fail "custom hostname must use instance metadata"
+grep -q 'kairos-custom-hostname' "${ROOT}/scripts/08-create-cluster.sh" && fail "hostname is OEM cloud-config, not a kubeadm file"
+grep -q 'ds.meta_data.hostname' "${ROOT}/image/cloud-config.yaml" || fail "hostname must use instance metadata"
+grep -q '127.0.0.1 localhost' "${ROOT}/image/cloud-config.yaml" || fail "hosts must include ipv4 localhost"
+grep -q '127.0.1.1 {{ ds.meta_data.hostname }}' "${ROOT}/image/cloud-config.yaml" || fail "hosts must map the hostname"
+grep -q '::1 localhost ip6-localhost ip6-loopback' "${ROOT}/image/cloud-config.yaml" || fail "hosts must include ipv6 localhost"
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 case "${KAIROS_IMAGE_VERSION}" in
@@ -113,7 +116,7 @@ grep -q -F -- 'imageName:' "${ROOT}/osartifact/cloud-image.yaml.tpl" && fail "v0
 grep -q -F -- 'ref: ${BASE_IMAGE}' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact source is spec.image.ref"
 grep -q -F -- 'cloudImage: true' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact still requests a cloud image"
 grep -q 'imageRepository' "${ROOT}/scripts/capi_patch.py" || fail "capi patch sets imageRepository"
-grep -q 'kairos-custom-hostname' "${ROOT}/scripts/08-create-cluster.sh" || fail "CAPI must patch kubeadm cloud-config hostname"
+grep -q 'hostname: "{{ ds.meta_data.hostname }}"' "${ROOT}/image/cloud-config.yaml" || fail "OEM cloud-config must set the hostname at boot"
 grep -q 'controlPlaneEndpoint:' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology must configure a control-plane endpoint"
 grep -A3 -q 'controlPlaneEndpoint:[[:space:]]*' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology control-plane endpoint shape"
 grep -q '            virtualIP: {}' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology must enable kube-vip virtualIP customization"

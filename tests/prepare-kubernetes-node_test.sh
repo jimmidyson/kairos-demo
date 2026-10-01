@@ -29,7 +29,9 @@ grep -q -- '--registry' /tmp/pcn-err || fail "missing --registry message: $(cat 
 
 prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.4 --os ubuntu-24.04 --arch amd64
 [[ -f "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" ]] || fail "set file not written"
+[[ -d "${tmpdir}/etc/kubernetes/patches" ]] || fail "kubeadm patches directory"
 already_applied "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" "${reg}" ubuntu-24.04 amd64 v1.36.4 || fail "should be applied"
+already_applied "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" "${reg}" ubuntu-24.04 amd64 v1.36.4 9.9.9 && fail "containerd version must be part of the applied set"
 [[ -f "${tmpdir}/var/lib/kairos/extensions/containerd-2.4.0-ubuntu-24.04-amd64.sysext.raw" ]] || fail "versioned containerd extension not written"
 [[ -f "${tmpdir}/var/lib/kairos/extensions/kubernetes-v1.36.4-amd64.sysext.raw" ]] || fail "versioned kubernetes extension not written"
 # Forwarding is configured in the OS image, not by prepare-kubernetes-node.
@@ -67,5 +69,13 @@ mkdir -p "${tmpdir}/usr/lib/kairos"
 printf '3.10.1\n' >"${tmpdir}/usr/lib/kairos/pause-tag"
 prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.6 --os ubuntu-24.04 --arch amd64
 grep -q 'pause:3.10.1' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fail "pause tag from sysext file"
+
+setfile="${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set"
+before="$(cat "${setfile}")"
+_refresh_sysext() { return 1; }
+if prepare-kubernetes-node-main --registry "${reg}" --kubernetes-version v1.36.7 --os ubuntu-24.04 --arch amd64; then
+  fail "refresh failure must fail the run"
+fi
+[[ "$(cat "${setfile}")" == "${before}" ]] || fail "set file updated after refresh failure"
 
 echo "ok prepare-kubernetes-node_test"
