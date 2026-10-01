@@ -16,7 +16,7 @@ Design: [`docs/superpowers/specs/2026-08-25-capi-kairos-fips-design.md`](docs/su
 
 ## What this is not
 
-Not a Kairos Kubernetes provider. Not first-boot `kubeadm init`. Bootstrap is **CABPK** only. Cilium and Nutanix CCM are **CAAPH**, not baked into the image. arm64 is build-and-push only (no CAPX).
+Not a Kairos Kubernetes provider. Not first-boot `kubeadm init`. Bootstrap is **CABPK** only. Cilium and Nutanix CCM are deployed by **CAREN** (`clusterConfig.addons`, HelmAddon via CAAPH), not baked into the image. arm64 is build-and-push only (no CAPX).
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ Optional: `KAIROS_SKIP_DOCKER_CHECK=1` (build on a Docker/BuildKit pair older th
 | 5 | `scripts/05-osartifact.sh` | Management cluster, kairos-operator v0.2.2, nginx, cloud disks |
 | 6 | `scripts/06-upload-prism.sh` | Prism image, waited until COMPLETE |
 | 7 | `scripts/07-capi-init.sh` | clusterctl CAPX + CAAPH, `InPlaceUpdates`, Runtime Extension |
-| 8 | `scripts/08-create-cluster.sh` | 1 CP + 1 worker at v1.35, Cilium, CCM |
+| 8 | `scripts/08-create-cluster.sh` | 1 CP + 1 worker at v1.35; CAREN deploys Cilium and CCM |
 | 9 | `scripts/09-inplace-upgrade.sh` | Patch version; the extension upgrades the same Machines to v1.36 |
 | 10 | `scripts/10-destroy.sh` | Delete cluster and Prism image (`DESTROY_KIND=1` also drops the management cluster) |
 
@@ -83,6 +83,7 @@ bash tests/image_contract_test.sh
 bash tests/sysext_names_test.sh
 bash tests/k8s_images_list_test.sh
 bash tests/prism_test.sh
+bash tests/cluster_addons_test.sh
 ( cd extension && go test ./... )
 ```
 

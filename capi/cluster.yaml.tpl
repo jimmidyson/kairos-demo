@@ -13,6 +13,17 @@ spec:
     variables:
     - name: clusterConfig
       value:
+        addons:
+          ccm:
+            credentials:
+              secretRef:
+                name: nutanix-credentials
+            strategy: HelmAddon
+          cni:
+            provider: Cilium
+            strategy: HelmAddon
+        kubeProxy:
+          mode: disabled
         kubernetesImageRepository: ${PREFIX}
         users:
         - name: capiuser
@@ -29,6 +40,7 @@ spec:
               secretRef:
                 name: nutanix-credentials
             url: https://${NUTANIX_ENDPOINT}:9440
+            insecure: ${PRISM_INSECURE}${PRISM_TRUST_LINE}
         controlPlane:
           nutanix:
             machineDetails:

@@ -36,7 +36,7 @@ A human can run `./demo.sh` (or the individual step scripts) and see:
 3. FIPS kubeadm images for v1.35.x and v1.36.x pushed.
 4. Ubuntu 24.04 amd64 disk uploaded to Prism.
 5. KIND hosting CAPI + CABPK + CAPX + CAAPH + our in-place extension.
-6. One CAPX cluster: 1 control plane + 1 worker, **created at v1.35**, Cilium + Nutanix CCM via CAAPH, both nodes `Ready`.
+6. One CAPX cluster: 1 control plane + 1 worker, **created at v1.35**, Cilium + Nutanix CCM via CAREN, both nodes `Ready`.
 7. In-place bump to v1.36: same Machine objects, kubelet/control-plane at v1.36, nodes still `Ready`.
 
 Stopping after any step prints the next command.
@@ -57,7 +57,7 @@ Stopping after any step prints the next command.
 - Registry: configurable (`OCI_REGISTRY` + `OCI_REPOSITORY_PREFIX` + credentials). Operator uses `harbor.eng.nutanix.com`.
 - Infra: CAPX (`cluster-api-provider-nutanix`), `clusterctl init -i nutanix`.
 - Management: KIND.
-- Addons: Cilium and Nutanix CCM via CAAPH (HelmChartProxy). No other install path.
+- Addons: Cilium and Nutanix CCM via CAREN `clusterConfig.addons` (HelmAddon). No factory-owned HelmChartProxy.
 - Cluster shape: 1 CP + 1 worker.
 - Scripted demo, not a proper e2e suite. Steps runnable together or alone.
 - In-place upgrade: CAPI v1.12 Runtime SDK (`CanUpdateMachine`, `CanUpdateMachineSet`, `UpdateMachine`). No home-grown loop.
@@ -83,7 +83,7 @@ KIND: CAPI + CABPK + CAPX + CAAPH + inplace-extension
   └─ CAPX VMs boot OS disk
        preKubeadmCommands: prepare-kubernetes-node --registry … --kubernetes-version v1.35.x
        CABPK: kubeadm init/join, imageRepository=Harbor
-       CAAPH: Cilium + Nutanix CCM
+       CAREN: Cilium + Nutanix CCM (HelmAddon through CAAPH)
        version bump → Runtime Extension SSH → prepare-kubernetes-node + kubeadm upgrade
 ```
 
@@ -168,7 +168,7 @@ Rebuild with `GOFIPS140=certified` and push to the configured registry:
 
 `KubeadmConfig.clusterConfiguration.imageRepository` = `${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}`.
 
-Cilium and Nutanix CCM stay upstream via CAAPH.
+Cilium and Nutanix CCM stay upstream. CAREN renders their HelmChartProxies from `clusterConfig.addons`.
 
 **Known ceiling:** the cluster is not a FIPS-validated *system*. Node agents and kubeadm static pods we build are FIPS-mode Go; Cilium/CCM/pause are not.
 
@@ -187,7 +187,7 @@ KIND management cluster:
 3. Deploy our in-place Runtime Extension + `ExtensionConfig`.
 4. Prism creds from `NUTANIX_*` env (same names as CAPX getting-started).
 5. Cluster at **v1.35.x**, 1 CP + 1 worker, same Ubuntu 24.04 amd64 `NutanixMachineTemplate`.
-6. CAAPH HelmChartProxy: Nutanix CCM, Cilium.
+6. CAREN HelmAddon: Nutanix CCM, Cilium.
 7. Wait until both nodes `Ready`.
 8. Bump KCP + MachineDeployment to v1.36.x. Extension performs in-place update. Same Machine names. Wait `Ready`.
 9. Destroy: delete Cluster, then the Nutanix image we created. KIND tear-down optional.
@@ -222,7 +222,7 @@ Step list:
 5. KIND + kairos-operator; OSArtifact cloud disks; fetch Ubuntu 24.04 amd64 disk
 6. Upload that disk to Prism
 7. `clusterctl init` + Runtime Extension
-8. Create cluster at v1.35 + CAAPH addons; wait Ready
+8. Create cluster at v1.35; CAREN deploys addons; wait Ready
 9. In-place bump to v1.36; wait Ready
 10. Destroy cluster + Nutanix image (KIND optional)
 
@@ -292,7 +292,7 @@ Human-run `./demo.sh` is the integration proof.
 - Step 7 deploys the Runtime Extension (`CanUpdateMachine`, `CanUpdateMachineSet`, `UpdateMachine`) and turns on `InPlaceUpdates`. `CanUpdate*` returns a JSON patch only when the Nutanix image identity is unchanged and every spec diff is the Kubernetes version string. Step 9 patches the control plane first, waits, then patches workers. It does not SSH itself.
 - KubeadmControlPlane `maxSurge` is 0. MachineDeployment `maxSurge` is 0 and `maxUnavailable` is 1 (v1beta2 field is `spec.rollout.strategy`).
 - `imageRepository` is set on `kubeadmConfigSpec.clusterConfiguration`. Prism v4 image calls use a curl config file. Step 6 uploads the disk directly to the Prism Objects S3 API (`vmm-images`) with the v4 `ObjectsLiteSource`; TLS is verified unless `NUTANIX_INSECURE=1`, and `NUTANIX_CA_FILE` is used for Prism API calls. Step 6 waits until the image is `COMPLETE`. Step 10 deletes it.
-- Nutanix CCM is a second HelmChartProxy rendered at step 8 with Prism credentials under `config.prismCentral`. The chart repo is `NUTANIX_CCM_REPO` (default `https://nutanix-cloud-native.github.io/cloud-provider-nutanix`). `https://nutanix.github.io/helm-releases` is the NCM product index, not this chart.
+- `clusterConfig.kubeProxy.mode` is `disabled`, so kubeadm skips `addon/kube-proxy` and CAREN enables Cilium kube-proxy replacement. Cilium and Nutanix CCM are CAREN addons on `clusterConfig` (`addons.cni.provider: Cilium`, `addons.ccm` referencing the `nutanix-credentials` Secret). CAREN copies that Secret to the workload cluster and templates Prism host, port, insecure, and trust bundle from `prismCentralEndpoint`. `NUTANIX_INSECURE=1` sets `insecure: true`. `NUTANIX_CA_FILE` sets `additionalTrustBundle` to the base64 PEM and forces `insecure: false`. Chart repo and version come from the CAREN release (`CAREN_VERSION`), not a factory HelmChartProxy.
 
 ## Open ceilings (deliberate)
 

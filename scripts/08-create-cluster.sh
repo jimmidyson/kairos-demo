@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/scripts/lib.sh"
 
 step_start 8 "Create CAPX cluster at ${KUBERNETES_VERSION_OLD}" \
-  "1 CP + 1 worker. imageRepository is under clusterConfiguration. maxSurge 0 so in-place can run." \
+  "1 CP + 1 worker. CAREN deploys Cilium and Nutanix CCM after the control plane is up. maxSurge 0 so in-place can run." \
   "Cluster kairos-capi in default namespace"
 
 require_factory_env
@@ -111,7 +111,7 @@ kubectl patch clusterclass nutanix-quick-start --type=json -p "${prepare_patch_j
 
 CLUSTER_NAME="kairos-capi"
 export CLUSTER_NAME KUBERNETES_VERSION PREFIX
-envsubst '${CLUSTER_NAME} ${KUBERNETES_VERSION} ${PREFIX}' <"${ROOT}/capi/cluster.yaml.tpl" | kubectl apply --server-side -f -
+bash "${ROOT}/scripts/render_cluster.sh" | kubectl apply --server-side -f -
 
 # Wait for control plane to be created via topology
 kcp=""
@@ -124,11 +124,6 @@ until [[ -n "${kcp}" ]]; do
     sleep 2
   fi
 done
-
-export CILIUM_CHART_VERSION
-kubectl apply --server-side -f <(envsubst '${CILIUM_CHART_VERSION}' <"${ROOT}/capi/cilium.yaml")
-bash "${ROOT}/scripts/render_ccm.sh" >"${ROOT}/build/ccm.yaml"
-kubectl apply --server-side -f "${ROOT}/build/ccm.yaml"
 
 printf '  waiting for control plane %s Ready\n' "${kcp}"
 kubectl wait --for=condition=Ready "kubeadmcontrolplane/${kcp}" --timeout=60m

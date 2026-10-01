@@ -69,11 +69,4 @@ status="$(printf '%s\n' '{"data":{"value":{"status":"SUCCEEDED"}}}' | prism_task
 [[ "${status}" == "SUCCEEDED" ]] || fail "task status: ${status}"
 [[ "$(uuid5_url abc)" == "68661508-f3c4-55b4-945d-ae2b4dfe5db4" ]] || fail "uuid5"
 
-export NUTANIX_ENDPOINT=prism.example NUTANIX_USER=admin NUTANIX_PASSWORD='p@ss:"word'
-export NUTANIX_CCM_REPO=https://charts.example/ccm NUTANIX_CCM_CHART=nutanix-cloud-provider
-ccm="$(bash "${ROOT}/scripts/render_ccm.sh")"
-printf '%s\n' "${ccm}" | grep -q 'prismCentral:' || fail "ccm values"
-printf '%s\n' "${ccm}" | grep -q 'p@ss:\\"word' || fail "password must be quoted: ${ccm}"
-printf '%s\n' "${ccm}" | grep -q 'charts.example/ccm' || fail "ccm repo"
-
 echo "ok prism_test"

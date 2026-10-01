@@ -1,6 +1,6 @@
 # CAPI Kairos FIPS Factory Implementation Plan
 
-The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, CCM rendered by `scripts/render_ccm.sh`, extension under `extension/cmd/inplace-extension`). The spec is the contract.
+The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, addons rendered by CAREN from `capi/cluster.yaml.tpl`, extension under `extension/cmd/inplace-extension`). The spec is the contract.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -22,7 +22,7 @@ The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, 
 - CAPX e2e: Ubuntu 24.04 amd64, 1 CP + 1 worker, create at v1.35, in-place to v1.36.
 - arm64: build+push only.
 - Scripts communicate; no e2e test harness.
-- Cilium + Nutanix CCM via CAAPH only.
+- Cilium + Nutanix CCM via CAREN HelmAddon only. CAAPH stays installed because CAREN's HelmAddon strategy writes HelmChartProxies.
 
 ## File map
 
@@ -38,8 +38,7 @@ The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, 
 | `sysexts/Dockerfile.containerd` `Dockerfile.runc` `Dockerfile.cniplugins` `Dockerfile.kubernetes` | component images for auroraboot |
 | `k8s-images/build.sh` | FIPS kubeadm static-pod images + pause retag |
 | `osartifact/cloud-image.yaml.tpl` | OSArtifact cloudImage |
-| `capi/cluster.yaml.tpl` | CAPX cluster at OLD version |
-| `capi/cilium.yaml` `capi/ccm.yaml` | CAAPH HelmChartProxy |
+| `capi/cluster.yaml.tpl` | CAPX cluster at OLD version; CAREN addons (Cilium, CCM) |
 | `extension/` | CAPI in-place Runtime Extension |
 | `tests/` | bash checks for lib + prepare-kubernetes-node |
 
@@ -126,7 +125,7 @@ Build kube-apiserver, kube-controller-manager, kube-scheduler, kube-proxy, etcd,
 
 ### Task 7: Prism upload + clusterctl + CAAPH cluster
 
-**Files:** `scripts/06-upload-prism.sh`, `scripts/07-capi-init.sh`, `capi/cluster.yaml.tpl`, `capi/cilium.yaml`, `capi/ccm.yaml`, `scripts/08-create-cluster.sh`.
+**Files:** `scripts/06-upload-prism.sh`, `scripts/07-capi-init.sh`, `capi/cluster.yaml.tpl`, `scripts/render_cluster.sh`, `scripts/08-create-cluster.sh`.
 
 Upload via Prism API or `nutanix` CLI if present; else `curl` to images API using `NUTANIX_*`. clusterctl init `-i nutanix` plus CAAPH. Cluster at `KUBERNETES_VERSION_OLD`, `preKubeadmCommands: prepare-kubernetes-node --registry $(image_prefix) --kubernetes-version $ver`, `imageRepository: $(image_prefix)`.
 
