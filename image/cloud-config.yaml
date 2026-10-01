@@ -67,6 +67,16 @@ stages:
       systemctl:
         enable:
           - systemd-sysext
+  # CABPK userdata has no yip stages, so it is mapped onto boot and
+  # cos-setup-boot reapplies it every boot (including write_files of the PKI).
+  # fs runs first. After kubeadm has written kubelet.conf, drop the saved
+  # yaml. Keep the /oem/95_userdata directory so the datasource does not
+  # pull the config drive again.
+  fs:
+    - name: "Drop CABPK userdata once kubeadm has succeeded"
+      if: '[ -f /etc/kubernetes/kubelet.conf ] && [ -f /oem/95_userdata/userdata.yaml ]'
+      commands:
+        - rm -f /oem/95_userdata/userdata.yaml
   boot:
     - name: "Apply native hostname"
       hostname: "{{ ds.meta_data.hostname }}"

@@ -120,6 +120,11 @@ grep -q 'kairos-prepare-kubernetes-node' "${ROOT}/scripts/08-create-cluster.sh" 
 grep -q '{{ .builtin.controlPlane.version }}' "${ROOT}/scripts/08-create-cluster.sh" || fail "control plane prepare uses the topology version"
 grep -q '{{ .builtin.machineDeployment.version }}' "${ROOT}/scripts/08-create-cluster.sh" || fail "worker prepare uses the topology version"
 grep -q 'hostname: "{{ ds.meta_data.hostname }}"' "${ROOT}/image/cloud-config.yaml" || fail "OEM cloud-config must set the hostname at boot"
+# CABPK userdata is stage-less, so yip reapplies it on every boot stage.
+# fs runs before boot; drop the saved file once kubeadm has succeeded.
+grep -q '/etc/kubernetes/kubelet.conf' "${ROOT}/image/cloud-config.yaml" || fail "OEM must keep CABPK userdata until kubelet.conf exists"
+grep -q 'rm -f /oem/95_userdata/userdata.yaml' "${ROOT}/image/cloud-config.yaml" || fail "OEM must drop CABPK userdata.yaml after kubeadm"
+grep -q 'rm -rf /oem/95_userdata' "${ROOT}/image/cloud-config.yaml" && fail "OEM must keep /oem/95_userdata or the datasource pulls kubeadm again"
 grep -q 'controlPlaneEndpoint:' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology must configure a control-plane endpoint"
 grep -A3 -q 'controlPlaneEndpoint:[[:space:]]*' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology control-plane endpoint shape"
 grep -q '            virtualIP: {}' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology must enable kube-vip virtualIP customization"
