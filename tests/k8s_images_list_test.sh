@@ -50,15 +50,13 @@ grep -q 'WORKDIR}/bin/coredns-${arch}' "${ROOT}/k8s-images/build.sh" || fail "co
 grep -q 'rm -rf "${ctx}"' "${ROOT}/k8s-images/build.sh" || fail "image context must replace a leftover file"
 
 enable_fips_go 1.24.13
-[[ "${GOTOOLCHAIN}" == "go1.25.10" ]] || fail "1.24.13 has no certified alias, got ${GOTOOLCHAIN:-unset}"
-enable_fips_go 1.25.4
 [[ "${GOFIPS140}" == "certified" ]] || fail "GOFIPS140"
-[[ "${GOTOOLCHAIN}" == "go1.25.10" ]] || fail "1.25.4 toolchain ${GOTOOLCHAIN:-unset}"
-enable_fips_go 1.25.10
-[[ -z "${GOTOOLCHAIN:-}" ]] || fail "1.25.10 should keep its own toolchain"
-enable_fips_go 1.26.0
-[[ "${GOTOOLCHAIN}" == "go1.26.3" ]] || fail "1.26.0 toolchain"
-enable_fips_go 1.26.5
-[[ -z "${GOTOOLCHAIN:-}" ]] || fail "1.26.5 should keep its own toolchain"
+[[ "${GOTOOLCHAIN}" == "go${GO_VERSION}" ]] || fail "1.24.13 toolchain ${GOTOOLCHAIN:-unset}"
+enable_fips_go
+[[ "${GOTOOLCHAIN}" == "go${GO_VERSION}" ]] || fail "default toolchain ${GOTOOLCHAIN:-unset}"
+grep -q 'GOTOOLCHAIN=go${GO_VERSION}' "${ROOT}/sysexts/Dockerfile.kubernetes" || fail "kubernetes sysext must build with the factory Go"
+if ( unset GO_VERSION; enable_fips_go ); then
+  fail "enable_fips_go must require GO_VERSION"
+fi
 
 echo "ok k8s_images_list_test"

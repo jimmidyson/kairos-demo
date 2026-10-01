@@ -3,19 +3,19 @@
 ARG GO_VERSION
 
 FROM golang:${GO_VERSION} AS build
+ARG GO_VERSION
 ARG K8S_VERSION
 ARG TARGETARCH
 ARG RELEASE_VERSION
 ARG PAUSE_TAG
 ARG CRI_TOOLS_VERSION
-ENV GOFIPS140=certified CGO_ENABLED=0
+# GOTOOLCHAIN stops Kubernetes and cri-tools make from downloading .go-version.
+ENV GO_VERSION=${GO_VERSION} GOFIPS140=certified GOTOOLCHAIN=go${GO_VERSION} CGO_ENABLED=0
 RUN apt-get update && apt-get install -y --no-install-recommends git rsync make && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-COPY scripts/enable-fips-go.sh /tmp/enable-fips-go.sh
 RUN git clone --depth 1 --branch "${K8S_VERSION}" https://github.com/kubernetes/kubernetes.git
 WORKDIR /src/kubernetes
-RUN eval "$(bash /tmp/enable-fips-go.sh /src/kubernetes/.go-version)" \
- && make kubeadm kubelet kubectl KUBE_BUILD_PLATFORMS="linux/${TARGETARCH}"
+RUN make kubeadm kubelet kubectl KUBE_BUILD_PLATFORMS="linux/${TARGETARCH}"
 RUN mkdir -p /out/usr/bin /out/usr/lib/systemd/system/kubelet.service.d /out/usr/lib/kairos && \
     cp "_output/local/bin/linux/${TARGETARCH}/kubeadm" /out/usr/bin/ && \
     cp "_output/local/bin/linux/${TARGETARCH}/kubelet" /out/usr/bin/ && \
