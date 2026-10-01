@@ -89,6 +89,7 @@ for ver in "${KUBERNETES_VERSION_OLD}" "${KUBERNETES_VERSION_NEW}"; do
       --build-arg="GO_VERSION=${GO_VERSION}" \
       --build-arg="RELEASE_VERSION=${KUBE_RELEASE_VERSION}" \
       --build-arg="PAUSE_TAG=${pause}" \
+      --build-arg="CRI_TOOLS_VERSION=$(cri_tools_version "${ver}")" \
       "${ROOT}"
     pack_sysext "${src}" "$(kubernetes_image "${ver}" "${arch}")" "kubernetes" "${arch}"
   done

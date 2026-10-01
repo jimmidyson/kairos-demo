@@ -7,6 +7,7 @@ ARG K8S_VERSION
 ARG TARGETARCH
 ARG RELEASE_VERSION
 ARG PAUSE_TAG
+ARG CRI_TOOLS_VERSION
 ENV GOFIPS140=certified CGO_ENABLED=0
 RUN apt-get update && apt-get install -y --no-install-recommends git rsync make && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
@@ -26,6 +27,14 @@ RUN curl -fsSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_V
       > /out/usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
 RUN mkdir -p /out/etc/systemd/system/multi-user.target.wants && \
     ln -sf /usr/lib/systemd/system/kubelet.service /out/etc/systemd/system/multi-user.target.wants/kubelet.service
+# Same minor as this Kubernetes build. Static, so it ships here rather than
+# in the per-OS containerd sysext. VERSION is the crictl --version string; a
+# depth-1 clone does not always git-describe the tag.
+WORKDIR /src
+RUN git clone --depth 1 --branch "${CRI_TOOLS_VERSION}" https://github.com/kubernetes-sigs/cri-tools.git
+WORKDIR /src/cri-tools
+RUN make crictl VERSION="${CRI_TOOLS_VERSION#v}" \
+ && cp "build/bin/linux/${TARGETARCH}/crictl" /out/usr/bin/crictl
 
 FROM scratch
 COPY --from=build /out /

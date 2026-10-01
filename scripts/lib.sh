@@ -69,6 +69,24 @@ kubernetes_image() {
   printf '%s/kubernetes:%s-%s\n' "$(image_prefix)" "${ver}" "${arch}"
 }
 
+# cri-tools tracks the Kubernetes minor, not each patch. An unknown minor
+# needs an explicit CRI_TOOLS_VERSION so a new Kubernetes pin cannot silently
+# build the wrong crictl.
+cri_tools_version() {
+  local ver="$1"
+  case "${ver}" in
+    v1.36.*) printf '%s\n' "${CRI_TOOLS_VERSION_136}" ;;
+    v1.37.*) printf '%s\n' "${CRI_TOOLS_VERSION_137}" ;;
+    *)
+      if [[ -z "${CRI_TOOLS_VERSION:-}" ]]; then
+        printf 'CRI_TOOLS_VERSION must be set for kubernetes %s\n' "${ver}" >&2
+        return 1
+      fi
+      printf '%s\n' "${CRI_TOOLS_VERSION}"
+      ;;
+  esac
+}
+
 step_start() {
   local num="$1" title="$2" why="$3" touch="$4"
   printf '\n%s▶ step %s: %s%s\n' "${_c_blue}" "${num}" "${title}" "${_c_reset}"

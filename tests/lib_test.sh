@@ -14,6 +14,13 @@ if env -u RUNC_VERSION -u LIBPATHRS_VERSION -u CNI_PLUGINS_VERSION \
   CONTAINERD_VERSION=9.9.9 bash -c 'source "$1/versions.env"' _ "${ROOT}" 2>/dev/null; then
   fail "unsupported containerd version should require explicit runtime pins"
 fi
+[[ "$(cri_tools_version v1.36.5)" == v1.36.0 ]] || fail "crictl for 1.36"
+[[ "$(cri_tools_version v1.37.1)" == v1.37.0 ]] || fail "crictl for 1.37"
+[[ "$(CRI_TOOLS_VERSION_136=v1.36.9 cri_tools_version v1.36.5)" == v1.36.9 ]] || fail "crictl 1.36 override"
+if cri_tools_version v9.9.9 >/dev/null 2>&1; then
+  fail "unknown kubernetes minor should require CRI_TOOLS_VERSION"
+fi
+[[ "$(CRI_TOOLS_VERSION=v9.9.1 cri_tools_version v9.9.9)" == v9.9.1 ]] || fail "explicit crictl pin"
 
 version_at_least 29.8.1 29.8.1 || fail "equal docker version"
 version_at_least 29.9.0 29.8.1 || fail "newer docker version"

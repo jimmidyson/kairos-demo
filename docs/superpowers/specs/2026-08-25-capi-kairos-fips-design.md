@@ -119,7 +119,7 @@ Per OS × arch, Docker/buildx + kairos-init. Docker 24.0.6 / BuildKit v0.11.6 co
 
 **`cri`:** dynamically linked containerd (that OS’s glibc), runc, CNI plugins, systemd units under `/usr/lib/systemd`. Built `GOFIPS140=certified` for Go bits.
 
-**`kubernetes`:** kubeadm, kubelet, kubectl from the Kubernetes tree, `GOFIPS140=certified`. kubelet drop-in so it uses containerd. Same artifact on all three OSes.
+**`kubernetes`:** kubeadm, kubelet, kubectl from the Kubernetes tree, plus crictl from cri-tools at the matching Kubernetes minor, `GOFIPS140=certified`. kubelet drop-in so it uses containerd. Same artifact on all three OSes.
 
 Built with `auroraboot sysext` from component OCI images.
 
