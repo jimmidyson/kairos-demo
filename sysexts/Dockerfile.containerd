@@ -30,11 +30,18 @@ RUN git clone --depth 1 --branch "v${RUNC_VERSION}" https://github.com/openconta
 WORKDIR /src/runc
 # Use runc's own helper so libpathrs is built against the same distro glibc
 # and installed where runc's pkg-config lookup can find it.
+# Ship a regular file named libpathrs.so.0. The helper installs that soname
+# as a symlink, and the loader opens the soname, not the versioned filename.
+# A sysext does not refresh /etc/ld.so.cache, and Debian's 64-bit linker does
+# not search /usr/lib, so runc carries a RUNPATH to the file.
 RUN ./script/build-libpathrs.sh "${LIBPATHRS_VERSION}" /usr && \
-    mkdir -p /out && \
-    find /usr/lib /usr/lib64 -type f -name 'libpathrs.so*' \
-      -exec cp -a --parents '{}' /out/ ';'
-RUN CGO_ENABLED=1 make runc
+    mkdir -p /out/usr/lib && \
+    real="$(find /usr -type f -name 'libpathrs.so.0' -print -quit)" && \
+    if [ -z "${real}" ]; then real="$(find /usr -type f -name 'libpathrs.so.*' -print -quit)"; fi && \
+    test -n "${real}" && \
+    cp -a "${real}" /out/usr/lib/libpathrs.so.0
+RUN CGO_ENABLED=1 CGO_LDFLAGS="-Wl,-rpath,/usr/lib" make runc && \
+    objdump -p runc | grep -E 'R(UN)?PATH' | grep -q '/usr/lib'
 
 WORKDIR /src
 RUN git clone --depth 1 --branch "v${CNI_PLUGINS_VERSION}" https://github.com/containernetworking/plugins.git

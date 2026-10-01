@@ -92,6 +92,9 @@ for df in image/Dockerfile.ubuntu image/Dockerfile.rocky; do
 done
 order_before "${ROOT}/image/Dockerfile.ubuntu" '-s init -m' 'systemctl mask systemd-timesyncd'
 grep -q 'opencontainers/runc' "${ROOT}/sysexts/Dockerfile.containerd" || fail "runc must be built from source"
+grep -q '/out/usr/lib/libpathrs.so.0' "${ROOT}/sysexts/Dockerfile.containerd" || fail "ship libpathrs under the soname the loader opens"
+grep -q 'rpath,/usr/lib' "${ROOT}/sysexts/Dockerfile.containerd" || fail "runc must rpath libpathrs; a sysext cannot refresh ld.so.cache"
+grep -q 'cp -a --parents' "${ROOT}/sysexts/Dockerfile.containerd" && fail "do not copy libpathrs via --parents; that keeps the versioned filename and drops the soname symlink"
 grep -q 'containernetworking/plugins' "${ROOT}/sysexts/Dockerfile.containerd" || fail "cni must be built from source"
 grep -q 'runc.${TARGETARCH}' "${ROOT}/sysexts/Dockerfile.containerd" && fail "runc must not be an upstream release binary"
 grep -E '^ARG [A-Za-z0-9_]+=' "${ROOT}/sysexts/Dockerfile.containerd" "${ROOT}/sysexts/Dockerfile.kubernetes" && fail "sysext ARGs take their values from the build, not Dockerfile defaults"
