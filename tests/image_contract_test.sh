@@ -115,7 +115,10 @@ grep -q -F -- 'quay.io/kairos/operator:${op_ref}' "${ROOT}/scripts/05-osartifact
 grep -q -F -- 'imageName:' "${ROOT}/osartifact/cloud-image.yaml.tpl" && fail "v0.2 OSArtifact has no spec.imageName"
 grep -q -F -- 'ref: ${BASE_IMAGE}' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact source is spec.image.ref"
 grep -q -F -- 'cloudImage: true' "${ROOT}/osartifact/cloud-image.yaml.tpl" || fail "OSArtifact still requests a cloud image"
-grep -q 'imageRepository' "${ROOT}/scripts/capi_patch.py" || fail "capi patch sets imageRepository"
+grep -q 'kubernetesImageRepository' "${ROOT}/capi/cluster.yaml.tpl" || fail "cluster sets kubernetesImageRepository"
+grep -q 'kairos-prepare-kubernetes-node' "${ROOT}/scripts/08-create-cluster.sh" || fail "clusterclass patch prepares the node"
+grep -q '{{ .builtin.controlPlane.version }}' "${ROOT}/scripts/08-create-cluster.sh" || fail "control plane prepare uses the topology version"
+grep -q '{{ .builtin.machineDeployment.version }}' "${ROOT}/scripts/08-create-cluster.sh" || fail "worker prepare uses the topology version"
 grep -q 'hostname: "{{ ds.meta_data.hostname }}"' "${ROOT}/image/cloud-config.yaml" || fail "OEM cloud-config must set the hostname at boot"
 grep -q 'controlPlaneEndpoint:' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology must configure a control-plane endpoint"
 grep -A3 -q 'controlPlaneEndpoint:[[:space:]]*' "${ROOT}/capi/cluster.yaml.tpl" || fail "Cluster topology control-plane endpoint shape"
@@ -124,19 +127,4 @@ grep -q 'CAPI_VERSION=' "${ROOT}/versions.env" || fail "CAPI_VERSION pin"
 grep -q -- '--core "cluster-api:${CAPI_VERSION}"' "${ROOT}/scripts/07-capi-init.sh" || fail "clusterctl core version"
 grep -q -- '--bootstrap "kubeadm:${CAPI_VERSION}"' "${ROOT}/scripts/07-capi-init.sh" || fail "clusterctl bootstrap version"
 grep -q -- '--control-plane "kubeadm:${CAPI_VERSION}"' "${ROOT}/scripts/07-capi-init.sh" || fail "clusterctl control-plane version"
-python3 - "${ROOT}/scripts/capi_patch.py" <<'PY'
-import json, subprocess, sys
-script = sys.argv[1]
-kcp = json.loads(subprocess.check_output([sys.executable, script, "kcp", "--api-version", "controlplane.cluster.x-k8s.io/v1beta2", "--version", "v1.35.8", "--prefix", "harbor.example/p"]))
-spec = kcp["spec"]["kubeadmConfigSpec"]
-assert "imageRepository" not in spec, spec
-assert spec["clusterConfiguration"]["imageRepository"] == "harbor.example/p"
-assert spec["preKubeadmCommands"][0].endswith("v1.35.8")
-assert kcp["spec"]["rollout"]["strategy"]["rollingUpdate"]["maxSurge"] == 0
-md = json.loads(subprocess.check_output([sys.executable, script, "md", "--api-version", "cluster.x-k8s.io/v1beta2", "--version", "v1.35.8"]))
-assert md["spec"]["rollout"]["strategy"]["rollingUpdate"]["maxUnavailable"] == 1
-assert md["spec"]["rollout"]["strategy"]["rollingUpdate"]["maxSurge"] == 0
-old = json.loads(subprocess.check_output([sys.executable, script, "md", "--api-version", "cluster.x-k8s.io/v1beta1"]))
-assert old["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] == 1
-PY
 echo "ok image_contract_test"

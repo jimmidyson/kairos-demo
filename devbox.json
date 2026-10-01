@@ -11,6 +11,7 @@
     "kubectl@latest",
     "kubernetes-helm@latest",
     "pv@latest",
-    "envsubst@latest"
+    "envsubst@latest",
+    "jq@latest"
   ]
 }

@@ -19,32 +19,21 @@ mkdir -p "${ROOT}/build"
 # Create the CAPX credential secret expected by NutanixClusterTemplate.
 # The credential controller reads the `credentials` key; username/password
 # keys alone produce: no "credentials" data found in secret.
-NUTANIX_ENDPOINT="${NUTANIX_ENDPOINT}" NUTANIX_USER="${NUTANIX_USER}" \
-  NUTANIX_PASSWORD="${NUTANIX_PASSWORD}" python3 - <<'PY' | kubectl apply --server-side -f -
-import json
-import os
-
-credentials = [{
-    "type": "basic_auth",
-    "data": {
-        "prismCentral": {
-            "username": os.environ["NUTANIX_USER"],
-            "password": os.environ["NUTANIX_PASSWORD"],
-        },
-        "prismElements": None,
-    },
-}]
-credential_json = json.dumps(credentials, separators=(",", ":"))
-print("""apiVersion: v1
+credential_json="$(jq -nc \
+  --arg user "${NUTANIX_USER}" \
+  --arg password "${NUTANIX_PASSWORD}" \
+  '[{type:"basic_auth",data:{prismCentral:{username:$user,password:$password},prismElements:null}}]')"
+# ${credential_json} is expanded once; a password containing $() stays literal.
+kubectl apply --server-side -f - <<EOF
+apiVersion: v1
 kind: Secret
 metadata:
   name: nutanix-credentials
   namespace: default
 stringData:
   credentials: |
-    %s
-""" % credential_json)
-PY
+    ${credential_json}
+EOF
 
 # CAREN supplies the CAPX ClusterClass and all referenced templates. Machine
 # details, Prism endpoints, and credentials are supplied through clusterConfig
@@ -56,64 +45,45 @@ kubectl apply --server-side --force-conflicts -f "https://github.com/nutanix-clo
 # remains correct during in-place upgrades as well as initial provisioning.
 prepare_patch_name="kairos-prepare-kubernetes-node"
 if ! kubectl get clusterclass nutanix-quick-start -o jsonpath='{.spec.patches[*].name}' | grep -qw "${prepare_patch_name}"; then
-  prepare_patch_json="$(PREFIX="${PREFIX}" python3 - <<'PY'
-import json
-import os
-
-prefix = os.environ["PREFIX"]
-patch = {
-    "op": "add",
-    "path": "/spec/template/spec/kubeadmConfigSpec/preKubeadmCommands/-",
-    "value": None,
-}
-worker_patch = {
-    "op": "add",
-    "path": "/spec/template/spec/preKubeadmCommands/-",
-    "value": None,
-}
-control_plane_value_from = {
-    "template": (
-        "prepare-kubernetes-node --registry %s --kubernetes-version "
-        "{{ .builtin.controlPlane.version }}"
-    ) % prefix,
-}
-worker_value_from = {
-    "template": (
-        "prepare-kubernetes-node --registry %s --kubernetes-version "
-        "{{ .builtin.machineDeployment.version }}"
-    ) % prefix,
-}
-patch["valueFrom"] = control_plane_value_from
-worker_patch["valueFrom"] = worker_value_from
-print(json.dumps([{
-    "op": "add",
-    "path": "/spec/patches/-",
-    "value": {
-        "name": "kairos-prepare-kubernetes-node",
-        "definitions": [
-            {
-                "selector": {
-                    "apiVersion": "controlplane.cluster.x-k8s.io/v1beta2",
-                    "kind": "KubeadmControlPlaneTemplate",
-                    "matchResources": {"controlPlane": True},
-                },
-                "jsonPatches": [patch],
+  prepare_patch_json="$(jq -nc --arg prefix "${PREFIX}" '
+    def cmd($version):
+      "prepare-kubernetes-node --registry \($prefix) --kubernetes-version \($version)";
+    [{
+      op: "add",
+      path: "/spec/patches/-",
+      value: {
+        name: "kairos-prepare-kubernetes-node",
+        definitions: [
+          {
+            selector: {
+              apiVersion: "controlplane.cluster.x-k8s.io/v1beta2",
+              kind: "KubeadmControlPlaneTemplate",
+              matchResources: {controlPlane: true}
             },
-            {
-                "selector": {
-                    "apiVersion": "bootstrap.cluster.x-k8s.io/v1beta2",
-                    "kind": "KubeadmConfigTemplate",
-                    "matchResources": {
-                        "machineDeploymentClass": {"names": ["*"]},
-                    },
-                },
-                "jsonPatches": [worker_patch],
+            jsonPatches: [{
+              op: "add",
+              path: "/spec/template/spec/kubeadmConfigSpec/preKubeadmCommands/-",
+              value: null,
+              valueFrom: {template: cmd("{{ .builtin.controlPlane.version }}")}
+            }]
+          },
+          {
+            selector: {
+              apiVersion: "bootstrap.cluster.x-k8s.io/v1beta2",
+              kind: "KubeadmConfigTemplate",
+              matchResources: {machineDeploymentClass: {names: ["*"]}}
             },
-        ],
-    },
-}]))
-PY
-)"
+            jsonPatches: [{
+              op: "add",
+              path: "/spec/template/spec/preKubeadmCommands/-",
+              value: null,
+              valueFrom: {template: cmd("{{ .builtin.machineDeployment.version }}")}
+            }]
+          }
+        ]
+      }
+    }]
+  ')"
   kubectl patch clusterclass nutanix-quick-start --type=json -p "${prepare_patch_json}"
 fi
 
@@ -135,7 +105,7 @@ done
 
 export CILIUM_CHART_VERSION
 kubectl apply --server-side -f <(envsubst '${CILIUM_CHART_VERSION}' <"${ROOT}/capi/cilium.yaml")
-python3 "${ROOT}/scripts/render_ccm.py" >"${ROOT}/build/ccm.yaml"
+bash "${ROOT}/scripts/render_ccm.sh" >"${ROOT}/build/ccm.yaml"
 kubectl apply --server-side -f "${ROOT}/build/ccm.yaml"
 
 printf '  waiting for control plane %s Ready\n' "${kcp}"

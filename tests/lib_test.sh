@@ -155,7 +155,12 @@ if LOG="${log}" PATH="${shim}:${PATH}" KAIROS_BUILDER=docker CRANE_EXISTS=0 \
   registry_image_exists example.com/missing:1; then
   fail "missing tag should rebuild"
 fi
-rm -rf "${shim}" "${ctx}" "${FACTORY_ROOT}/build/registry-config"
+auth_dir="$(mktemp -d)"
+OCI_REGISTRY=reg.example OCI_REGISTRY_USERNAME='u@x' OCI_REGISTRY_PASSWORD='p:q' \
+  write_registry_config "${auth_dir}"
+got_auth="$(jq -r '.auths["reg.example"].auth' "${auth_dir}/config.json")"
+[[ "${got_auth}" == "dUB4OnA6cQ==" ]] || fail "registry auth: ${got_auth}"
+rm -rf "${shim}" "${ctx}" "${auth_dir}" "${FACTORY_ROOT}/build/registry-config"
 unset DOCKER_CONFIG _registry_auth_ready OCI_REGISTRY OCI_REGISTRY_USERNAME OCI_REGISTRY_PASSWORD
 
 echo "ok lib_test"

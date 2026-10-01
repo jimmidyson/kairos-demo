@@ -31,6 +31,96 @@ prism_objects_region() {
   printf '%s\n' "${NUTANIX_OBJECTS_REGION:-us-east-1}"
 }
 
+# curl --config quotes \ and " inside the user string.
+prism_curl_user_config() {
+  local user=$1 password=$2
+  local quser=${user//\\/\\\\}
+  quser=${quser//\"/\\\"}
+  local qpass=${password//\\/\\\\}
+  qpass=${qpass//\"/\\\"}
+  printf 'user = "%s:%s"\n' "${quser}" "${qpass}"
+}
+
+# UUID v5 with the URL namespace: uuid.uuid5(uuid.NAMESPACE_URL, name).
+# NTNX-Request-Id must stay stable for a given disk digest.
+uuid5_url() {
+  local name=$1 hash b6 b8
+  hash="$(
+    set -o pipefail
+    {
+      printf '\x6b\xa7\xb8\x11\x9d\xad\x11\xd1\x80\xb4\x00\xc0\x4f\xd4\x30\xc8'
+      printf '%s' "${name}"
+    } | openssl dgst -sha1 -binary | od -An -tx1 | tr -d ' \n' | tr 'A-F' 'a-f'
+  )"
+  [[ ${#hash} -ge 32 ]] || return 1
+  b6=$((16#${hash:12:2}))
+  b8=$((16#${hash:16:2}))
+  b6=$(((b6 & 16#0f) | 16#50))
+  b8=$(((b8 & 16#3f) | 16#80))
+  printf '%s-%s-%s-%s-%s\n' \
+    "${hash:0:8}" \
+    "${hash:8:4}" \
+    "$(printf '%02x' "${b6}")${hash:14:2}" \
+    "$(printf '%02x' "${b8}")${hash:18:2}" \
+    "${hash:20:12}"
+}
+
+# Prism v4 returns the object as data, or nested under data.value.
+prism_object() {
+  jq -c '
+    def present: . != null and . != false and . != "" and . != [] and . != {} and . != 0;
+    (.data // null) as $d
+    | (if ($d | present) then $d else {} end) as $o
+    | if ($o | type) != "object" then {}
+      elif (($o | has("value")) and ($o.value != null)) then $o.value
+      else $o end
+  '
+}
+
+prism_ext_id() {
+  prism_object | jq -r '.extId // ""'
+}
+
+prism_affected_ext_id() {
+  prism_object | jq -r '(.entitiesAffected // []) as $a | if ($a | length) == 0 then "" else ($a[0].extId // "") end'
+}
+
+prism_image_state_value() {
+  prism_object | jq -r '
+    if (.state // "") != "" then .state
+    elif (.status // "") != "" then .status
+    elif (.sizeBytes // 0) != 0 then "COMPLETE"
+    else "" end
+  '
+}
+
+prism_task_status() {
+  prism_object | jq -r '.status // ""'
+}
+
+# Prints "external-id<TAB>state" or nothing. v4 list responses contain data[],
+# or a dict whose first List<...> value is that array.
+prism_match_image() {
+  local name=$1
+  jq -r --arg name "${name}" '
+    def present: . != null and . != false and . != "" and . != [] and . != {} and . != 0;
+    (.data // null) as $d
+    | (if ($d | present) then $d else [] end) as $raw
+    | (if ($raw | type) == "object" then
+        ([ $raw | to_entries[] | select(.key | startswith("List<")) ] | first) as $hit
+        | if $hit == null then [$raw] else $hit.value end
+      else $raw end) as $items
+    | [ (if ($items | type) == "array" then $items else [] end)[]
+        | if type == "object" then (.value // .) else {} end
+        | select(.name == $name or .displayName == $name)
+        | (.extId // .id // "") as $ext
+        | select($ext != "")
+        | [$ext, (.state // .status // "COMPLETE")]
+        | join("\t")
+      ] | first // empty
+  '
+}
+
 # curl with credentials in a mode-600 config file, not on argv.
 # NUTANIX_CA_FILE verifies TLS. NUTANIX_INSECURE=1 skips verification.
 prism_curl() {
@@ -40,17 +130,7 @@ prism_curl() {
   require_env NUTANIX_PASSWORD
   cfg="$(mktemp)"
   chmod 600 "${cfg}"
-  if ! NUTANIX_USER="${NUTANIX_USER}" NUTANIX_PASSWORD="${NUTANIX_PASSWORD}" python3 - "${cfg}" <<'PY'
-import os, sys
-path = sys.argv[1]
-def esc(s):
-    return s.replace("\\", "\\\\").replace('"', '\\"')
-user = os.environ["NUTANIX_USER"]
-pw = os.environ["NUTANIX_PASSWORD"]
-with open(path, "w") as f:
-    f.write('user = "%s:%s"\n' % (esc(user), esc(pw)))
-PY
-  then
+  if ! prism_curl_user_config "${NUTANIX_USER}" "${NUTANIX_PASSWORD}" >"${cfg}"; then
     rm -f "${cfg}"
     return 1
   fi
@@ -145,56 +225,35 @@ prism_find_image() {
   local name="$1"
   # Do not send $filter here: Prism versions differ in their v4 filter
   # grammar. The response is capped and matched locally by exact name.
-  prism_curl "$(prism_v4_base)/content/images?%24limit=50" \
-    | NAME="${name}" python3 -c '
-import json, os, sys
-name = os.environ["NAME"]
-data = json.load(sys.stdin)
-raw = data.get("data") or []
-if isinstance(raw, dict):
-    for key, value in raw.items():
-        if key.startswith("List<"):
-            raw = value
-            break
-    else:
-        raw = [raw]
-items = raw if isinstance(raw, list) else []
-for item in items:
-    value = item.get("value", item) if isinstance(item, dict) else {}
-    if value.get("name") == name or value.get("displayName") == name:
-        ext = value.get("extId") or value.get("id") or ""
-        state = value.get("state") or value.get("status") or "COMPLETE"
-        if ext:
-            print(ext + "\\t" + state)
-        break
-'
+  prism_curl "$(prism_v4_base)/content/images?%24limit=50" | prism_match_image "${name}"
 }
 
 prism_create_image() {
   local name="$1" key="$2" request_id="${3:-}" body task
-  body="$(NAME="${name}" KEY="${key}" python3 -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"type":"DISK_IMAGE","source":{"$objectType":"vmm.v4.content.ObjectsLiteSource","key":os.environ["KEY"]}}))')"
+  body="$(jq -nc --arg name "${name}" --arg key "${key}" \
+    '{name:$name,type:"DISK_IMAGE",source:{"$objectType":"vmm.v4.content.ObjectsLiteSource",key:$key}}')"
   printf '  creating Prism image %s from object %s\n' "${name}" "${key}" >&2
   printf '  image request: %s\n' "${body}" >&2
   task="$(prism_curl -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' ${request_id:+-H "NTNX-Request-Id: $request_id"} "$(prism_v4_base)/content/images" -d "${body}" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("data") or {}).get("value",d.get("data") or {}); print(v.get("extId") or "")')"
+    | prism_ext_id)"
   [[ -n "${task}" ]] || return 1
   printf '  image creation task: %s\n' "${task}" >&2
   prism_wait_task "${task}" || return 1
   printf '  image creation task complete: %s\n' "${task}" >&2
   prism_curl "https://$(prism_endpoint)/api/prism/v4.0/config/tasks/${task}" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("data") or {}).get("value",d.get("data") or {}); a=v.get("entitiesAffected") or []; print((a[0].get("extId") if a else "") or "")'
+    | prism_affected_ext_id
 }
 
 prism_image_state() {
   local uuid="$1"
   prism_curl "$(prism_v4_base)/content/images/${uuid}" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("data") or {}).get("value",d.get("data") or {}); print(v.get("state") or v.get("status") or ("COMPLETE" if v.get("sizeBytes",0) else ""))'
+    | prism_image_state_value
 }
 
 prism_task_state() {
   local uuid="$1"
   prism_curl "https://$(prism_endpoint)/api/prism/v4.0/config/tasks/${uuid}" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); v=(d.get("data") or {}).get("value",d.get("data") or {}); print(v.get("status") or "")'
+    | prism_task_status
 }
 
 prism_wait_task() {
@@ -251,11 +310,12 @@ prism_ensure_image() {
     prism_wait_image "${uuid}"
     return
   fi
-  local file="${FACTORY_ROOT}/build/ubuntu-24.04-amd64.raw"
+  # Tests point PRISM_IMAGE_FILE at a temp file. The factory uses the built raw.
+  local file="${PRISM_IMAGE_FILE:-${FACTORY_ROOT}/build/ubuntu-24.04-amd64.raw}"
   local key="${NUTANIX_OBJECTS_KEY:-kairos/${name}.raw}"
   local digest req_id
   digest="$(sha256sum "${file}" | awk '{print $1}')"
-  req_id="$(python3 -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))' "${digest}")"
+  req_id="$(uuid5_url "${digest}")"
   prism_upload_object "${file}" "${key}" || return 1
   uuid="$(prism_create_image "${name}" "${key}" "${req_id}")"
   [[ -n "${uuid}" ]] || return 1

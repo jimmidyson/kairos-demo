@@ -1,6 +1,6 @@
 # CAPI Kairos FIPS Factory Implementation Plan
 
-The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, CCM rendered by `scripts/render_ccm.py`, extension under `extension/cmd/inplace-extension`). The spec is the contract.
+The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, CCM rendered by `scripts/render_ccm.sh`, extension under `extension/cmd/inplace-extension`). The spec is the contract.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

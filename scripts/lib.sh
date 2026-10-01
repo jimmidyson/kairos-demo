@@ -177,18 +177,11 @@ mgmt_name() {
 
 # Crane and AuroraBoot's registry client read this file. Writing it is not a docker CLI call.
 write_registry_config() {
-  local dir="$1"
+  local dir="$1" auth
   mkdir -p "${dir}"
-  OCI_REGISTRY="${OCI_REGISTRY}" OCI_REGISTRY_USERNAME="${OCI_REGISTRY_USERNAME}" \
-    OCI_REGISTRY_PASSWORD="${OCI_REGISTRY_PASSWORD}" python3 - "${dir}/config.json" <<'PY'
-import base64, json, os, sys
-reg = os.environ["OCI_REGISTRY"]
-user = os.environ["OCI_REGISTRY_USERNAME"]
-pw = os.environ["OCI_REGISTRY_PASSWORD"]
-auth = base64.b64encode(("%s:%s" % (user, pw)).encode()).decode()
-with open(sys.argv[1], "w") as f:
-    json.dump({"auths": {reg: {"auth": auth}}}, f)
-PY
+  auth="$(printf '%s:%s' "${OCI_REGISTRY_USERNAME}" "${OCI_REGISTRY_PASSWORD}" | base64 | tr -d '\r\n')"
+  jq -n --arg reg "${OCI_REGISTRY}" --arg auth "${auth}" \
+    '{auths: {($reg): {auth: $auth}}}' >"${dir}/config.json"
   chmod 644 "${dir}/config.json"
 }
 

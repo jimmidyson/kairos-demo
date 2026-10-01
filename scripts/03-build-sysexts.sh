@@ -52,8 +52,10 @@ pack_sysext() {
   ctx="$(mktemp -d "${out}/${name}-oci.XXXXXX")"
   sysext_contexts+=("${ctx}")
   cp "${raw}" "${ctx}/${name}.sysext.raw"
-  printf 'FROM scratch\nCOPY %s /%s\n' \
-    "${name}.sysext.raw" "${name}.sysext.raw" >"${ctx}/Dockerfile"
+  cat >"${ctx}/Dockerfile" <<EOF
+FROM scratch
+COPY ${name}.sysext.raw /${name}.sysext.raw
+EOF
   oci_build --platform="linux/${arch}" --push --tag="${dest_image}" "${ctx}"
 }
 
