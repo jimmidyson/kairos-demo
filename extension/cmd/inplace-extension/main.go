@@ -4,53 +4,87 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/jimmidyson/kairos-demo/extension"
 )
 
-// Tiny SSH-based UpdateMachine helper used by the Runtime Extension.
-// Full CAPI Runtime SDK wiring is in main_runtime.go when CAPI_RUNTIME=1.
 func updateMachineSSH(user, host, keyPath, registry, version string, controlPlane bool) error {
-	cmdLine := fmt.Sprintf("sudo prepare-capi-node --registry %s --kubernetes-version %s", registry, version)
-	if err := sshRun(user, host, keyPath, cmdLine); err != nil {
+	script, err := extension.RemoteUpgradeScript(registry, version, controlPlane)
+	if err != nil {
 		return err
 	}
-	if controlPlane {
-		return sshRun(user, host, keyPath, fmt.Sprintf("sudo kubeadm upgrade apply %s --yes", version))
+	key, err := privateKeyFile(keyPath)
+	if err != nil {
+		return err
 	}
-	return sshRun(user, host, keyPath, "sudo kubeadm upgrade node")
+	defer os.Remove(key)
+	return sshRun(user, host, key, script)
+}
+
+func privateKeyFile(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp("", "inplace-ssh-*")
+	if err != nil {
+		return "", err
+	}
+	name := f.Name()
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		os.Remove(name)
+		return "", err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		os.Remove(name)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(name)
+		return "", err
+	}
+	return name, nil
 }
 
 func sshRun(user, host, keyPath, remote string) error {
-	args := []string{"-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes"}
-	if keyPath != "" {
-		args = append(args, "-i", keyPath)
+	args := []string{
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "UserKnownHostsFile=/tmp/known_hosts",
+		"-o", "BatchMode=yes",
+		"-i", keyPath,
+		user + "@" + host,
+		"bash", "-s",
 	}
-	args = append(args, user+"@"+host, remote)
 	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = strings.NewReader(remote)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-func decide(currentImage, desiredImage, currentVer, desiredVer string) bool {
-	return extension.CanUpdateInPlace(currentImage, desiredImage, currentVer, desiredVer)
-}
-
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "can-update" {
+	if len(os.Args) < 2 {
+		usage()
+	}
+	switch os.Args[1] {
+	case "serve":
+		if err := serve(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "can-update":
 		// usage: inplace-extension can-update curImg wantImg curVer wantVer
 		if len(os.Args) != 6 {
 			fmt.Fprintln(os.Stderr, "usage: inplace-extension can-update currentImage desiredImage currentVer desiredVer")
 			os.Exit(2)
 		}
-		ok := decide(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
-		if !ok {
+		if !extension.CanUpdateInPlace(os.Args[2], os.Args[3], os.Args[4], os.Args[5]) {
 			os.Exit(1)
 		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "update-machine" {
+	case "update-machine":
 		// usage: inplace-extension update-machine user host key registry version cp|worker
 		if len(os.Args) != 8 {
 			fmt.Fprintln(os.Stderr, "usage: inplace-extension update-machine user host keyPath registry version cp|worker")
@@ -61,8 +95,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		return
+	default:
+		usage()
 	}
-	fmt.Fprintln(os.Stderr, "usage: inplace-extension can-update|update-machine ...")
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: inplace-extension serve|can-update|update-machine ...")
 	os.Exit(2)
 }

@@ -4,6 +4,12 @@
 # rules cannot apply in a container/image build — that is expected, not fatal.
 set -euo pipefail
 
+ensure_fips_cmdline() {
+  mkdir -p /etc/default
+  touch /etc/default/grub
+  grep -q 'fips=1' /etc/default/grub || printf '\nGRUB_CMDLINE_LINUX="fips=1 ${GRUB_CMDLINE_LINUX:-}"\n' >>/etc/default/grub
+}
+
 dnf -y install crypto-policies-scripts openscap-scanner scap-security-guide \
   ca-certificates curl tar gzip
 fips-mode-setup --enable
@@ -22,6 +28,7 @@ done
 
 if [[ -z "${ds}" ]]; then
   echo "no SCAP datastream; CIS/STIG skipped (FIPS still enabled)" >&2
+  ensure_fips_cmdline
   dnf clean all
   exit 0
 fi
@@ -33,4 +40,5 @@ oscap xccdf eval --remediate --profile xccdf_org.ssgproject.content_profile_cis_
 oscap xccdf eval --remediate --profile xccdf_org.ssgproject.content_profile_stig "${ds}" \
   || echo "STIG remediate finished with findings (ok in image build)"
 
+ensure_fips_cmdline
 dnf clean all

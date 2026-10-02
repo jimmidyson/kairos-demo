@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kairos-inplace-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kairos-inplace
+  namespace: kairos-inplace-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kairos-inplace
+rules:
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["machines"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kairos-inplace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kairos-inplace
+subjects:
+  - kind: ServiceAccount
+    name: kairos-inplace
+    namespace: kairos-inplace-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kairos-inplace
+  namespace: kairos-inplace-system
+spec:
+  selector:
+    app: kairos-inplace
+  ports:
+    - name: https
+      port: 443
+      targetPort: 9443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kairos-inplace
+  namespace: kairos-inplace-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kairos-inplace
+  template:
+    metadata:
+      labels:
+        app: kairos-inplace
+    spec:
+      serviceAccountName: kairos-inplace
+      # SSH uses the management node's network namespace. KIND-on-Docker-Desktop
+      # is that Linux VM. container k8s is the Apple container VM. AHV addresses
+      # have to be reachable from there.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: extension
+          image: ${CAPI_EXTENSION_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          env:
+            - name: IMAGE_PREFIX
+              value: ${IMAGE_PREFIX}
+            - name: SSH_USER
+              value: nkpadmin
+            - name: SSH_KEY_PATH
+              value: /etc/ssh-key/id
+            - name: WEBHOOK_CERT_DIR
+              value: /certs
+          ports:
+            - name: https
+              containerPort: 9443
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+            - name: sshkey
+              mountPath: /etc/ssh-key
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: inplace-tls
+        - name: sshkey
+          secret:
+            secretName: inplace-ssh

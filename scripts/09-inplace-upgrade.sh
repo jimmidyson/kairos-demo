@@ -5,44 +5,41 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/scripts/lib.sh"
 
 step_start 9 "In-place upgrade ${KUBERNETES_VERSION_OLD} → ${KUBERNETES_VERSION_NEW}" \
-  "Same Machines. prepare-capi-node swaps the kubernetes sysext; kubeadm upgrade follows." \
+  "Patch the version. The Runtime Extension SSHes prepare-kubernetes-node and kubeadm. Machine names must stay." \
   "KubeadmControlPlane + MachineDeployment version"
 
 require_factory_env
 export KUBECONFIG="${ROOT}/kairos-kind.kubeconfig"
 PREFIX="$(image_prefix)"
-SSH_KEY="${SSH_IDENTITY_FILE:-${HOME}/.ssh/id_ed25519}"
+VER="${KUBERNETES_VERSION_NEW}"
 
-before="$(kubectl get machines -l cluster.x-k8s.io/cluster-name=kairos-capi -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.version}{"\n"}{end}')"
+before="$(kubectl get machines -l cluster.x-k8s.io/cluster-name=kairos-capi -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
 printf '  machines before:\n%s\n' "${before}"
 
-mapfile -t NAMES < <(kubectl get machines -l cluster.x-k8s.io/cluster-name=kairos-capi -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+cluster_name="kairos-capi"
+# Patch only the topology version. CAREN's kubernetesImageRepository is an
+# immutable clusterConfig value, and preKubeadmCommand is no longer a topology
+# variable because CAREN mutates the bootstrap templates itself.
+kubectl patch cluster "${cluster_name}" --type=merge -p "{\"spec\":{\"topology\":{\"version\":\"${VER}\"}}}"
 
-kubectl patch kubeadmcontrolplane kairos-capi-control-plane --type merge -p "{\"spec\":{\"version\":\"${KUBERNETES_VERSION_NEW}\",\"kubeadmConfigSpec\":{\"clusterConfiguration\":{\"imageRepository\":\"${PREFIX}\"}}}}"
-kubectl patch machinedeployment kairos-capi-md-0 --type merge -p "{\"spec\":{\"template\":{\"spec\":{\"version\":\"${KUBERNETES_VERSION_NEW}\"}}}}" \
-  || kubectl get machinedeployment -o name | head -1 | xargs -I{} kubectl patch {} --type merge -p "{\"spec\":{\"template\":{\"spec\":{\"version\":\"${KUBERNETES_VERSION_NEW}\"}}}}"
+kcp="$(kubectl get kubeadmcontrolplane -l cluster.x-k8s.io/cluster-name=${cluster_name} -o jsonpath='{.items[0].metadata.name}')"
+[[ -n "${kcp}" ]] || kcp="${cluster_name}-control-plane"
 
-while IFS=$'\t' read -r name ver; do
-  [[ -n "${name}" ]] || continue
-  img="$(kubectl get machine "${name}" -o jsonpath='{.spec.infrastructureRef.name}')"
-  if ! "${ROOT}/build/inplace-extension" can-update "${img}" "${img}" "${ver}" "${KUBERNETES_VERSION_NEW}"; then
-    step_fail "CanUpdateInPlace false for ${name} (image would change — CAPI would roll a new VM)"
-    exit 1
-  fi
-  addr="$(kubectl get machine "${name}" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')"
-  role=worker
-  kubectl get machine "${name}" -o jsonpath='{.metadata.labels}' | grep -q control-plane && role=cp
-  printf '  update %s (%s) %s → %s via %s\n' "${name}" "${role}" "${ver}" "${KUBERNETES_VERSION_NEW}" "${addr}"
-  "${ROOT}/build/inplace-extension" update-machine nkpadmin "${addr}" "${SSH_KEY}" "${PREFIX}" "${KUBERNETES_VERSION_NEW}" "${role}"
-done <<<"${before}"
+kubectl wait --for=jsonpath='{.status.version}'="${VER}" "kubeadmcontrolplane/${kcp}" --timeout=45m
+# v1beta2 KubeadmControlPlane has no Ready condition.
+kubectl wait --for=condition=Available "kubeadmcontrolplane/${kcp}" --timeout=45m
 
+md="$(kubectl get machinedeployment -l cluster.x-k8s.io/cluster-name=${cluster_name} -o jsonpath='{.items[0].metadata.name}')"
+[[ -n "${md}" ]] || md="${cluster_name}-md-0"
+kubectl wait --for=condition=Available "machinedeployment/${md}" --timeout=45m
 kubectl --kubeconfig="${ROOT}/build/kairos-capi.kubeconfig" wait --for=condition=Ready node --all --timeout=45m
 
 after="$(kubectl get machines -l cluster.x-k8s.io/cluster-name=kairos-capi -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
 printf '  machines after:\n%s\n' "${after}"
-for n in "${NAMES[@]}"; do
-  grep -qx "${n}" <<<"${after}" || { step_fail "machine ${n} was replaced — in-place failed"; exit 1; }
-done
+while IFS= read -r n; do
+  [[ -n "${n}" ]] || continue
+  grep -F -qx "${n}" <<<"${after}" || { step_fail "machine ${n} was replaced — in-place failed"; exit 1; }
+done <<<"${before}"
 
 step_ok
 next_step 10

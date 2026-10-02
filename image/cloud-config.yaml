@@ -1,6 +1,13 @@
 #cloud-config
 # OEM config baked into the cloud disk. CABPK supplies kubeadm.
 # Do not run kubeadm here.
+# Do not set the hostname here. yip has no cloud-init ds template.
+# /etc/hosts starts as a symlink to /usr/local/etc/hosts. systemd-sysext
+# then covers /usr/local with a read-only /usr overlay, so writes through
+# the symlink fail. The boot stage below, and the ClusterClass
+# preKubeadmCommand, replace the symlink with a regular /etc/hosts.
+# /opt is not a sysext hierarchy. Cilium writes /opt/cni/bin. Stock CNI
+# plugins ship at /usr/lib/cni, under the existing /usr/lib hierarchy.
 
 name: "capi-kairos-base"
 
@@ -16,18 +23,71 @@ users:
 
 stages:
   initramfs.after:
-    - name: "systemd-sysext"
-      if: '[ -e "/sbin/systemctl" ] || [ -e "/usr/bin/systemctl" ]'
+    - name: "systemd-sysext uki config"
+      if: '[ -e "/run/cos/uki_boot_mode" ] && [ ! -e "/run/cos/recovery_mode" ] && [ ! -e "/run/cos/autoreset_mode" ]'
+      files:
+        - path: /etc/systemd/system/systemd-sysext.service.d/kairos-uki.conf
+          permissions: 0644
+          owner: 0
+          group: 0
+          content: |
+            [Service]
+            TimeoutStartSec=10
+            ExecStart=
+            ExecStart=systemd-sysext refresh --image-policy="root=verity+signed+absent:usr=verity+signed+absent"
+            ExecReload=
+            ExecReload=systemd-sysext refresh --image-policy="root=verity+signed+absent:usr=verity+signed+absent"
+            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin"
+            [Unit]
+            JobRunningTimeoutSec=5
+
+    - name: "systemd-sysext config"
+      if: '[ ! -e "/run/cos/uki_boot_mode" ] && [ ! -e "/run/cos/recovery_mode" ] && [ ! -e "/run/cos/autoreset_mode" ]'
+      files:
+        - path: /etc/systemd/system/systemd-sysext.service.d/kairos.conf
+          permissions: 0644
+          owner: 0
+          group: 0
+          content: |
+            [Service]
+            TimeoutStartSec=10
+            ExecStart=
+            ExecStart=systemd-sysext refresh --image-policy="root=verity+absent:usr=verity+absent"
+            ExecReload=
+            ExecReload=systemd-sysext refresh --image-policy="root=verity+absent:usr=verity+absent"
+            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin"
+            [Unit]
+            JobRunningTimeoutSec=5
+
+    - name: "systemd-sysext set hierarchy system-wide"
+      if: '[ ! -e "/run/cos/recovery_mode" ] && [ ! -e "/run/cos/autoreset_mode" ]'
+      files:
+        - path: /etc/profile.d/systemd-sysext.sh
+          permissions: 0644
+          owner: 0
+          group: 0
+          content: |
+            export SYSTEMD_SYSEXT_HIERARCHIES="/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin"
+
+    - name: "systemd-sysext initramfs settings"
+      if: '[ -e "/sbin/systemctl" ] || [ -e "/usr/bin/systemctl" ] || [ -e "/usr/sbin/systemctl" ] || [ -e "/bin/systemctl" ]'
       systemctl:
         enable:
           - systemd-sysext
-      files:
-        - path: /etc/systemd/system/systemd-sysext.service.d/capi.conf
-          permissions: 0644
-          content: |
-            [Service]
-            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/usr/lib:/opt"
-        - path: /etc/profile.d/systemd-sysext.sh
-          permissions: 0644
-          content: |
-            export SYSTEMD_SYSEXT_HIERARCHIES="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/usr/lib:/opt"
+  # CABPK userdata has no yip stages, so it is mapped onto boot and
+  # cos-setup-boot reapplies it every boot (including write_files of the PKI).
+  # fs runs first. After kubeadm has written kubelet.conf, drop the saved
+  # yaml. Keep the /oem/95_userdata directory so the datasource does not
+  # pull the config drive again.
+  fs:
+    - name: "Drop CABPK userdata once kubeadm has succeeded"
+      if: '[ -f /etc/kubernetes/kubelet.conf ] && [ -f /oem/95_userdata/userdata.yaml ]'
+      commands:
+        - rm -f /oem/95_userdata/userdata.yaml
+  # Runs on every boot, including after userdata.yaml is removed.
+  # On first boot this is before hostnamectl; the preKubeadmCommand rewrites
+  # /etc/hosts again once the CAPI name is set.
+  boot:
+    - name: "Replace dangling /etc/hosts symlink"
+      commands:
+        - rm -f /etc/hosts; hn=$(hostnamectl --static 2>/dev/null || hostname); printf '%s\n' '127.0.0.1 localhost' "127.0.1.1 ${hn}" '::1 localhost ip6-localhost ip6-loopback' 'fe00::0 ip6-localnet' 'ff00::0 ip6-mcastprefix' 'ff02::1 ip6-allnodes' 'ff02::2 ip6-allrouters' > /etc/hosts

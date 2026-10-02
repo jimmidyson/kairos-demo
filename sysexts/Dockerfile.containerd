@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1
+# Dynamically linked containerd against the target OS glibc, plus runc + CNI.
+# BASE_IMAGE is the distro (ubuntu:24.04, rockylinux:9), not the Kairos image.
+
+ARG BASE_IMAGE
+ARG GO_VERSION
+
+FROM golang:${GO_VERSION} AS gobuild
+FROM ${BASE_IMAGE} AS build
+ARG CONTAINERD_VERSION
+ARG RUNC_VERSION
+ARG LIBPATHRS_VERSION
+ARG CNI_PLUGINS_VERSION
+ARG TARGETARCH
+COPY --from=gobuild /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH GOFIPS140=certified GOTOOLCHAIN=local CGO_ENABLED=1
+RUN if command -v apt-get >/dev/null; then \
+      apt-get update && apt-get install -y --no-install-recommends git make gcc libc6-dev libseccomp-dev pkg-config curl wget ca-certificates clang lld rustc cargo xz-utils; \
+    else \
+      dnf -y install git make gcc libseccomp-devel pkgconfig curl wget ca-certificates clang lld rust cargo xz; \
+    fi
+
+WORKDIR /src
+RUN git clone --depth 1 --branch "v${CONTAINERD_VERSION}" https://github.com/containerd/containerd.git
+WORKDIR /src/containerd
+RUN make bin/containerd bin/containerd-shim-runc-v2 bin/ctr
+
+WORKDIR /src
+RUN git clone --depth 1 --branch "v${RUNC_VERSION}" https://github.com/opencontainers/runc.git
+WORKDIR /src/runc
+# Use runc's own helper so libpathrs is built against the same distro glibc
+# and installed where runc's pkg-config lookup can find it.
+# Ship a regular file named libpathrs.so.0. The helper installs that soname
+# as a symlink, and the loader opens the soname, not the versioned filename.
+# A sysext does not refresh /etc/ld.so.cache, and Debian's 64-bit linker does
+# not search /usr/lib, so runc carries a RUNPATH to the file.
+RUN ./script/build-libpathrs.sh "${LIBPATHRS_VERSION}" /usr && \
+    mkdir -p /out/usr/lib && \
+    real="$(find /usr -type f -name 'libpathrs.so.0' -print -quit)" && \
+    if [ -z "${real}" ]; then real="$(find /usr -type f -name 'libpathrs.so.*' -print -quit)"; fi && \
+    test -n "${real}" && \
+    cp -a "${real}" /out/usr/lib/libpathrs.so.0
+RUN CGO_ENABLED=1 CGO_LDFLAGS="-Wl,-rpath,/usr/lib" make runc && \
+    objdump -p runc | grep -E 'R(UN)?PATH' | grep -q '/usr/lib'
+
+WORKDIR /src
+RUN git clone --depth 1 --branch "v${CNI_PLUGINS_VERSION}" https://github.com/containernetworking/plugins.git
+WORKDIR /src/plugins
+RUN CGO_ENABLED=0 ./build_linux.sh
+
+FROM scratch AS base
+COPY --from=build /out/ /
+COPY --from=build /src/containerd/bin/containerd /usr/bin/containerd
+COPY --from=build /src/containerd/bin/containerd-shim-runc-v2 /usr/bin/containerd-shim-runc-v2
+COPY --from=build /src/containerd/bin/ctr /usr/bin/ctr
+COPY --from=build /src/runc/runc /usr/bin/runc
+# /usr/lib is already a sysext hierarchy. /opt is not, so Cilium can write
+# /opt/cni/bin. containerd searches both directories.
+COPY --from=build /src/plugins/bin /usr/lib/cni
+COPY sysexts/containerd.service /usr/lib/systemd/system/containerd.service
+
+# AuroraBoot packs only the final image layer. Flatten the distro and all
+# copied artifacts into one layer so the sysext contains the complete rootfs.
+FROM scratch
+COPY --from=base / /

@@ -1,7 +1,7 @@
 # CAPI kubeadm Kairos FIPS image factory
 
 **Date:** 2026-08-25
-**Status:** approved (brainstorming session)
+**Status:** implemented (see Implementation notes)
 
 ## Problem
 
@@ -31,12 +31,12 @@ This repo is a half-migrated Kairos demo. It does not produce a disk image that 
 
 A human can run `./demo.sh` (or the individual step scripts) and see:
 
-1. Six FIPS Kairos cloud disks built (3 OS × 2 arch) and pushed where relevant.
-2. Six `cri` sysexts and four `kubernetes` sysexts pushed.
+1. FIPS Kairos cloud disk for the cluster OS built and pushed. Default is Ubuntu 24.04 amd64; `OSES` and `ARCHES` still select Ubuntu 22.04, Rocky 9, and arm64.
+2. containerd and kubernetes sysexts for the selected OS/arch pairs pushed.
 3. FIPS kubeadm images for v1.35.x and v1.36.x pushed.
 4. Ubuntu 24.04 amd64 disk uploaded to Prism.
 5. KIND hosting CAPI + CABPK + CAPX + CAAPH + our in-place extension.
-6. One CAPX cluster: 1 control plane + 1 worker, **created at v1.35**, Cilium + Nutanix CCM via CAAPH, both nodes `Ready`.
+6. One CAPX cluster: 1 control plane + 1 worker, **created at v1.35**, Cilium + Nutanix CCM via CAREN, both nodes `Ready`.
 7. In-place bump to v1.36: same Machine objects, kubelet/control-plane at v1.36, nodes still `Ready`.
 
 Stopping after any step prints the next command.
@@ -57,7 +57,7 @@ Stopping after any step prints the next command.
 - Registry: configurable (`OCI_REGISTRY` + `OCI_REPOSITORY_PREFIX` + credentials). Operator uses `harbor.eng.nutanix.com`.
 - Infra: CAPX (`cluster-api-provider-nutanix`), `clusterctl init -i nutanix`.
 - Management: KIND.
-- Addons: Cilium and Nutanix CCM via CAAPH (HelmChartProxy). No other install path.
+- Addons: Cilium and Nutanix CCM via CAREN `clusterConfig.addons` (HelmAddon). No factory-owned HelmChartProxy.
 - Cluster shape: 1 CP + 1 worker.
 - Scripted demo, not a proper e2e suite. Steps runnable together or alone.
 - In-place upgrade: CAPI v1.12 Runtime SDK (`CanUpdateMachine`, `CanUpdateMachineSet`, `UpdateMachine`). No home-grown loop.
@@ -81,10 +81,10 @@ GOFIPS140=certified ──► Harbor: kube-apiserver, …, etcd, coredns; pause 
 
 KIND: CAPI + CABPK + CAPX + CAAPH + inplace-extension
   └─ CAPX VMs boot OS disk
-       preKubeadmCommands: prepare-capi-node --registry … --kubernetes-version v1.35.x
+       preKubeadmCommands: prepare-kubernetes-node --registry … --kubernetes-version v1.35.x
        CABPK: kubeadm init/join, imageRepository=Harbor
-       CAAPH: Cilium + Nutanix CCM
-       version bump → Runtime Extension SSH → prepare-capi-node + kubeadm upgrade
+       CAREN: Cilium + Nutanix CCM (HelmAddon through CAAPH)
+       version bump → Runtime Extension SSH → prepare-kubernetes-node + kubeadm upgrade
 ```
 
 ### Artifact matrix
@@ -105,13 +105,13 @@ Harbor names (prefix = `${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}`):
 
 ### Base image
 
-Per OS × arch, Docker/buildx + kairos-init:
+Per OS × arch, Docker/buildx + kairos-init. Docker 24.0.6 / BuildKit v0.11.6 commits a large bind-mounted `RUN` as whiteouts of `/`. Docker 29.8.1 / BuildKit v0.33.0 does not. The minimum in between is unknown; the check uses that known-good pair and `KAIROS_SKIP_DOCKER_CHECK=1` skips it.
 
 - Ubuntu: Ubuntu Pro FIPS packages / USG as required for that release. `UBUNTU_PRO_TOKEN` required for Ubuntu builds.
 - Rocky 9: `fips-mode-setup --enable` (or distro-equivalent) so `/proc/sys/crypto/fips_enabled` is 1 after boot.
 - `systemd-sysext` enabled; `/var/lib/extensions` writable and persistent.
 - `/etc` and `/var` persist so CABPK can write `/etc/kubernetes` and `/var/lib/kubelet`.
-- `prepare-capi-node` installed on the base (not a sysext).
+- `prepare-kubernetes-node` installed on the base (not a sysext).
 - Debug user + SSH authorized key from env (`NUTANIX_SSH_AUTHORIZED_KEY`).
 - No kubeadm, kubelet, containerd, or first-boot `kubeadm init`.
 
@@ -119,16 +119,16 @@ Per OS × arch, Docker/buildx + kairos-init:
 
 **`cri`:** dynamically linked containerd (that OS’s glibc), runc, CNI plugins, systemd units under `/usr/lib/systemd`. Built `GOFIPS140=certified` for Go bits.
 
-**`kubernetes`:** kubeadm, kubelet, kubectl from the Kubernetes tree, `GOFIPS140=certified`. kubelet drop-in so it uses containerd. Same artifact on all three OSes.
+**`kubernetes`:** kubeadm, kubelet, kubectl from the Kubernetes tree, plus crictl from cri-tools at the matching Kubernetes minor, `GOFIPS140=certified`. kubelet drop-in so it uses containerd. Same artifact on all three OSes.
 
 Built with `auroraboot sysext` from component OCI images.
 
-### `prepare-capi-node`
+### `prepare-kubernetes-node`
 
 Applies the **known set** (`cri` + `kubernetes`) to make the node CABPK-ready. Not a generic OCI applier.
 
 ```text
-prepare-capi-node --registry REGISTRY --kubernetes-version vX.Y.Z
+prepare-kubernetes-node --registry REGISTRY --kubernetes-version vX.Y.Z
 ```
 
 - Detects OS from `/etc/os-release` (`ubuntu-22.04`, `ubuntu-24.04`, `rocky-9`) and arch from `uname -m` (`amd64` / `arm64`).
@@ -152,7 +152,7 @@ Does **not** run `kubeadm upgrade`, drain the node, or change the OS. That is th
 CAPI first boot: `preKubeadmCommands` is exactly:
 
 ```text
-prepare-capi-node --registry ${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX} --kubernetes-version ${KUBERNETES_VERSION}
+prepare-kubernetes-node --registry ${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX} --kubernetes-version ${KUBERNETES_VERSION}
 ```
 
 ### FIPS kubeadm images
@@ -168,13 +168,13 @@ Rebuild with `GOFIPS140=certified` and push to the configured registry:
 
 `KubeadmConfig.clusterConfiguration.imageRepository` = `${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}`.
 
-Cilium and Nutanix CCM stay upstream via CAAPH.
+Cilium and Nutanix CCM stay upstream. CAREN renders their HelmChartProxies from `clusterConfig.addons`.
 
 **Known ceiling:** the cluster is not a FIPS-validated *system*. Node agents and kubeadm static pods we build are FIPS-mode Go; Cilium/CCM/pause are not.
 
 ### VM disks
 
-kairos-operator on KIND. One `OSArtifact` per OS × arch, `cloudImage: true`, source = base OCI image. Output is a preinstalled raw/qcow2 (Kairos first-boot install happens at image build, not at CAPX VM boot). Sysexts are not in the disk.
+kairos-operator on KIND. One `OSArtifact` per OS × arch, `spec.image.ref` = base OCI image, `spec.artifacts.cloudImage: true`. Output is a preinstalled raw disk named after the OSArtifact (`cloud-<os>-<arch>.raw`). Kairos first-boot install happens at image build, not at CAPX VM boot. Sysexts are not in the disk.
 
 Upload **only** Ubuntu 24.04 amd64 to Prism for the scripted cluster. Other amd64 disks may be uploaded if a step is run with overrides; arm64 disks are not uploaded.
 
@@ -187,7 +187,7 @@ KIND management cluster:
 3. Deploy our in-place Runtime Extension + `ExtensionConfig`.
 4. Prism creds from `NUTANIX_*` env (same names as CAPX getting-started).
 5. Cluster at **v1.35.x**, 1 CP + 1 worker, same Ubuntu 24.04 amd64 `NutanixMachineTemplate`.
-6. CAAPH HelmChartProxy: Nutanix CCM, Cilium.
+6. CAREN HelmAddon: Nutanix CCM, Cilium.
 7. Wait until both nodes `Ready`.
 8. Bump KCP + MachineDeployment to v1.36.x. Extension performs in-place update. Same Machine names. Wait `Ready`.
 9. Destroy: delete Cluster, then the Nutanix image we created. KIND tear-down optional.
@@ -197,7 +197,7 @@ KIND management cluster:
 CAPI v1.12 hooks:
 
 - `CanUpdateMachine` / `CanUpdateMachineSet`: allow in-place iff the Nutanix disk image name is unchanged and the diff is Kubernetes version (and matching image tags). Any other infra change → CAPI rolls a new VM.
-- `UpdateMachine`: SSH with the key already on the Machine; run `prepare-capi-node --registry … --kubernetes-version $desired`; then `kubeadm upgrade apply` on a control-plane node or `kubeadm upgrade node` on a worker. Non-zero fails the hook.
+- `UpdateMachine`: SSH with the key already on the Machine; run `prepare-kubernetes-node --registry … --kubernetes-version $desired`; then `kubeadm upgrade apply` on a control-plane node or `kubeadm upgrade node` on a worker. Non-zero fails the hook.
 
 No second installer. Feature gate `InPlaceUpdates=true` on CAPI controllers as required by the installed CAPI version.
 
@@ -222,7 +222,7 @@ Step list:
 5. KIND + kairos-operator; OSArtifact cloud disks; fetch Ubuntu 24.04 amd64 disk
 6. Upload that disk to Prism
 7. `clusterctl init` + Runtime Extension
-8. Create cluster at v1.35 + CAAPH addons; wait Ready
+8. Create cluster at v1.35; CAREN deploys addons; wait Ready
 9. In-place bump to v1.36; wait Ready
 10. Destroy cluster + Nutanix image (KIND optional)
 
@@ -252,7 +252,7 @@ Fatal, with a pointer to the object/log:
 - missing required env
 - Harbor auth / push / pull from AHV
 - OSArtifact not Ready
-- `prepare-capi-node` non-zero
+- `prepare-kubernetes-node` non-zero
 - kubeadm missing after prepare
 - OS FIPS not enabled on the node
 - `CanUpdateMachine` false when we expected in-place (unexpected rollout)
@@ -275,11 +275,25 @@ Replace README with the script contract, env vars, artifact names, and this spec
 
 No cluster e2e suite. Checks that must exist:
 
-- `prepare-capi-node` unit/self-test: OS/arch detect, ref construction, no-op when already applied, fail when registry unset.
+- `prepare-kubernetes-node` unit/self-test: OS/arch detect, ref construction, no-op when already applied, fail when registry unset.
 - Runtime Extension unit tests: `CanUpdate` true only for version-only diffs; false when image name changes.
 - Script lib: missing-env fails with the variable name.
 
 Human-run `./demo.sh` is the integration proof.
+
+## Implementation notes
+
+- On macOS, `KAIROS_BUILDER=auto` and `KAIROS_MGMT=auto` select Apple `container` for image builds and `container k8s` for the management cluster when that CLI is installed. `KAIROS_BUILDER=docker` and `KAIROS_MGMT=kind` keep Docker buildx and KIND. Both builders push the sysext rootfs and run AuroraBoot without a Docker socket, so that container cannot drive the host daemon. AuroraBoot pulls the rootfs itself. Multi-arch indexes are `crane index append`.
+- Core, kubeadm bootstrap, and kubeadm control plane are `CAPI_VERSION` (default `v1.13.6`). The Runtime Extension module is the same release. CAPX and CAAPH stay on the versions clusterctl selects for that contract.
+- Kairos operator is pinned to `v0.2.2` (`spec.image.ref`, `spec.artifacts.cloudImage`, `spec.artifacts.cloudConfigRef`). Step 5 retargets the Deployment image because that tag's kustomize still names the previous release. `config/nginx` is applied separately. The Ubuntu 24.04 amd64 disk is downloaded with `kubectl port-forward`, and a missing file fails step 5.
+- FIPS and the CIS/STIG scripts run after `kairos-init -s install` and before `-s init`. `fips=1` is written to `/etc/default/grub` so the UKI build can see it. Those profiles remove `rsync` and mask `systemd-timesyncd`. `rsync` is installed again before `-s init` because dracut will not build the UKI without it. `chrony` and `systemd-timesyncd` cannot be installed together. timesyncd is installed for `-s init`, which enables it. `chrony` is removed without purge so its STIG config remains, then installed again. timesyncd is purged and masked. The Ubuntu Pro token is removed from the image after attach.
+- The `cri` sysext compiles on the distro image that matches the OS (`distro_image`), so it links that glibc without using the Kairos root as a build environment. containerd, runc, and the CNI plugins are built with `GOFIPS140=certified`.
+- Static pod image names and tags are whatever `kubeadm config images list --image-repository` prints. Each tag is a multi-arch manifest list. The kubernetes sysext carries `/usr/lib/kairos/pause-tag`; `prepare-kubernetes-node` applies it as containerd 2 `plugins.'io.containerd.cri.v1.images'.pinned_images.sandbox` after `systemd-sysext refresh`, and it pulls sysexts before stopping kubelet.
+- `/opt` is not a sysext hierarchy, so Cilium can write `/opt/cni/bin` (`cilium-cni` and the temporary `cilium-mount`). Stock CNI plugins ship in the containerd sysext at `/usr/lib/cni`, under the existing `/usr/lib` hierarchy. containerd `bin_dirs` is `/opt/cni/bin` then `/usr/lib/cni`, so `portmap` and `loopback` resolve from the sysext. Cilium Helm values are a ConfigMap: the CAREN v0.50 defaults for kube-proxy replacement, plus `bpf.masquerade`, `bpf.datapathMode: netkit`, and multi-pool IPAM (`192.168.0.0/16`, `/24` per node). They do not set a CNI bin path.
+- Step 7 deploys the Runtime Extension (`CanUpdateMachine`, `CanUpdateMachineSet`, `UpdateMachine`) and turns on `InPlaceUpdates`. `CanUpdate*` returns a JSON patch only when the Nutanix image identity is unchanged and every spec diff is the Kubernetes version string. Step 9 patches the control plane first, waits, then patches workers. It does not SSH itself.
+- KubeadmControlPlane `maxSurge` is 0. MachineDeployment `maxSurge` is 0 and `maxUnavailable` is 1 (v1beta2 field is `spec.rollout.strategy`).
+- `imageRepository` is set on `kubeadmConfigSpec.clusterConfiguration`. Prism v4 image calls use a curl config file. Step 6 uploads the disk directly to the Prism Objects S3 API (`vmm-images`) with the v4 `ObjectsLiteSource`; TLS is verified unless `NUTANIX_INSECURE=1`, and `NUTANIX_CA_FILE` is used for Prism API calls. Step 6 waits until the image is `COMPLETE`. Step 10 deletes it.
+- `clusterConfig.kubeProxy.mode` is `disabled`, so kubeadm skips `addon/kube-proxy` and CAREN enables Cilium kube-proxy replacement. Cilium and Nutanix CCM are CAREN addons on `clusterConfig` (`addons.cni.provider: Cilium`, `addons.ccm` referencing the `nutanix-credentials` Secret). CAREN copies that Secret to the workload cluster and templates Prism host, port, insecure, and trust bundle from `prismCentralEndpoint`. `NUTANIX_INSECURE=1` sets `insecure: true`. `NUTANIX_CA_FILE` sets `additionalTrustBundle` to the base64 PEM and forces `insecure: false`. Chart repo and version come from the CAREN release (`CAREN_VERSION`), not a factory HelmChartProxy.
 
 ## Open ceilings (deliberate)
 

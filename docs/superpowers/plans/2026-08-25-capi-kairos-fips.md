@@ -1,10 +1,12 @@
 # CAPI Kairos FIPS Factory Implementation Plan
 
+The factory is implemented. This plan's file map drifted (one `Dockerfile.cri`, addons rendered by CAREN from `capi/cluster.yaml.tpl`, extension under `extension/cmd/inplace-extension`). The spec is the contract.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the broken ISO demo with a stepped factory that builds FIPS Kairos OS disks, runtime `cri`/`kubernetes` sysexts, FIPS kubeadm images, and a CAPX cluster that in-place upgrades v1.35→v1.36.
 
-**Architecture:** Docker/buildx FIPS bases → kairos-operator `OSArtifact` cloud disks. AuroraBoot sysexts pulled at boot by `prepare-capi-node`. KIND runs operator + CAPI + CAPX + CAAPH + a Runtime Extension that SSHes `prepare-capi-node` then `kubeadm upgrade`.
+**Architecture:** Docker/buildx FIPS bases → kairos-operator `OSArtifact` cloud disks. AuroraBoot sysexts pulled at boot by `prepare-kubernetes-node`. KIND runs operator + CAPI + CAPX + CAAPH + a Runtime Extension that SSHes `prepare-kubernetes-node` then `kubeadm upgrade`.
 
 **Tech Stack:** bash, Docker buildx, kairos-init, AuroraBoot container, kairos-operator, clusterctl, CAPX, CAAPH, Go (in-place extension + tests).
 
@@ -13,14 +15,14 @@
 - CABPK only; no Kairos k8s provider; no OEM `kubeadm init`.
 - `GOFIPS140=certified` (not `latest`); Go 1.25.10+ / 1.26.3+ / 1.27+ or pin `v1.0.0`.
 - Kubernetes: `v1.35.8` and `v1.36.4` (override via env).
-- OS: ubuntu-22.04, ubuntu-24.04, rocky-9. Arch: amd64, arm64.
+- OS/arch default to what the cluster boots: ubuntu-24.04 amd64. Override `OSES` / `ARCHES` for ubuntu-22.04, rocky-9, and arm64.
 - `cri` sysext per OS×arch (dynamic containerd). `kubernetes` sysext per ver×arch.
 - Sysexts not baked into the disk. `--registry` is `${OCI_REGISTRY}/${OCI_REPOSITORY_PREFIX}`.
 - Registry is existing Harbor; do not start a local registry.
 - CAPX e2e: Ubuntu 24.04 amd64, 1 CP + 1 worker, create at v1.35, in-place to v1.36.
 - arm64: build+push only.
 - Scripts communicate; no e2e test harness.
-- Cilium + Nutanix CCM via CAAPH only.
+- Cilium + Nutanix CCM via CAREN HelmAddon only. CAAPH stays installed because CAREN's HelmAddon strategy writes HelmChartProxies.
 
 ## File map
 
@@ -30,16 +32,15 @@
 | `scripts/lib.sh` | env, logging, image names |
 | `scripts/01-check-env.sh` … `10-destroy.sh` | one factory step each |
 | `demo.sh` | run all or one step |
-| `image/prepare-capi-node` | node-up / in-place sysext apply |
+| `image/prepare-kubernetes-node` | node-up / in-place sysext apply |
 | `image/cloud-config.yaml` | OEM: users, sysext, no kubeadm |
 | `image/Dockerfile.ubuntu` `image/Dockerfile.rocky` | FIPS Kairos bases |
 | `sysexts/Dockerfile.containerd` `Dockerfile.runc` `Dockerfile.cniplugins` `Dockerfile.kubernetes` | component images for auroraboot |
 | `k8s-images/build.sh` | FIPS kubeadm static-pod images + pause retag |
 | `osartifact/cloud-image.yaml.tpl` | OSArtifact cloudImage |
-| `capi/cluster.yaml.tpl` | CAPX cluster at OLD version |
-| `capi/cilium.yaml` `capi/ccm.yaml` | CAAPH HelmChartProxy |
+| `capi/cluster.yaml.tpl` | CAPX cluster at OLD version; CAREN addons (Cilium, CCM) |
 | `extension/` | CAPI in-place Runtime Extension |
-| `tests/` | bash checks for lib + prepare-capi-node |
+| `tests/` | bash checks for lib + prepare-kubernetes-node |
 
 Delete: `terraform/`, `install-cloud-config.yaml`, `kubernetes-cloud-config.yaml`, `dockerfiles/Dockerfile.{base,bootstrap,final,containerd,runc,cniplugins,kubernetes}`, old `demo.sh` (replaced), old `cloud-config.yaml` (replaced by `image/cloud-config.yaml`).
 
@@ -65,20 +66,20 @@ Delete: `terraform/`, `install-cloud-config.yaml`, `kubernetes-cloud-config.yaml
 - [ ] **Step 4: Run `tests/lib_test.sh` — expect PASS.**
 - [ ] **Step 5: Commit.**
 
-### Task 2: prepare-capi-node
+### Task 2: prepare-kubernetes-node
 
-**Files:** Create `image/prepare-capi-node`, `tests/prepare-capi-node_test.sh`.
+**Files:** Create `image/prepare-kubernetes-node`, `tests/prepare-kubernetes-node_test.sh`.
 
 **Interfaces:**
 - `detect_os <os-release-text>` → `ubuntu-22.04` \| `ubuntu-24.04` \| `rocky-9`
 - `detect_arch <uname-m>` → `amd64` \| `arm64`
 - `cri_ref REGISTRY OS ARCH`
 - `kubernetes_ref REGISTRY VER ARCH`
-- `set_file_contents REGISTRY OS ARCH VER` (sidecar `/var/lib/extensions/capi-node.set`)
+- `set_file_contents REGISTRY OS ARCH VER` (sidecar `/var/lib/extensions/kubernetes-node.set`)
 - `already_applied SETFILE REGISTRY OS ARCH VER` → 0 if no-op
-- CLI: `prepare-capi-node --registry R --kubernetes-version V [--os --arch]`
+- CLI: `prepare-kubernetes-node --registry R --kubernetes-version V [--os --arch]`
 
-Test with `PREPARE_CAPI_NODE_ROOT` pointing at a temp fake root (no real systemd).
+Test with `PREPARE_KUBERNETES_NODE_ROOT` pointing at a temp fake root (no real systemd).
 
 - [ ] **Step 1: Failing tests** for detect, refs, missing `--registry`, no-op when set file matches, apply writes set file.
 - [ ] **Step 2: Run — FAIL.**
@@ -90,7 +91,7 @@ Test with `PREPARE_CAPI_NODE_ROOT` pointing at a temp fake root (no real systemd
 
 **Files:** Create `image/Dockerfile.ubuntu`, `image/Dockerfile.rocky`, `image/cloud-config.yaml`, `image/sysext-hierarchies.conf`. Delete old `dockerfiles/Dockerfile.base`.
 
-Ubuntu Dockerfile: kairos-init, Pro attach from secret, enable FIPS/USG, install crane + prepare-capi-node, enable systemd-sysext. Rocky: dnf + fips-mode-setup. Copy `prepare-capi-node` to `/usr/sbin/prepare-capi-node`.
+Ubuntu Dockerfile: kairos-init, Pro attach from secret, enable FIPS/USG, install crane + prepare-kubernetes-node, enable systemd-sysext. Rocky: dnf + fips-mode-setup. Copy `prepare-kubernetes-node` to `/usr/sbin/prepare-kubernetes-node`.
 
 - [ ] **Step 1: Dockerfiles + cloud-config with no kubeadm init** (grep test in `tests/image_contract_test.sh`: cloud-config must not contain `kubeadm init`).
 - [ ] **Step 2: Run contract test FAIL then add files PASS.**
@@ -124,9 +125,9 @@ Build kube-apiserver, kube-controller-manager, kube-scheduler, kube-proxy, etcd,
 
 ### Task 7: Prism upload + clusterctl + CAAPH cluster
 
-**Files:** `scripts/06-upload-prism.sh`, `scripts/07-capi-init.sh`, `capi/cluster.yaml.tpl`, `capi/cilium.yaml`, `capi/ccm.yaml`, `scripts/08-create-cluster.sh`.
+**Files:** `scripts/06-upload-prism.sh`, `scripts/07-capi-init.sh`, `capi/cluster.yaml.tpl`, `scripts/render_cluster.sh`, `scripts/08-create-cluster.sh`.
 
-Upload via Prism API or `nutanix` CLI if present; else `curl` to images API using `NUTANIX_*`. clusterctl init `-i nutanix` plus CAAPH. Cluster at `KUBERNETES_VERSION_OLD`, `preKubeadmCommands: prepare-capi-node --registry $(image_prefix) --kubernetes-version $ver`, `imageRepository: $(image_prefix)`.
+Upload via Prism API or `nutanix` CLI if present; else `curl` to images API using `NUTANIX_*`. clusterctl init `-i nutanix` plus CAAPH. Cluster at `KUBERNETES_VERSION_OLD`, `preKubeadmCommands: prepare-kubernetes-node --registry $(image_prefix) --kubernetes-version $ver`, `imageRepository: $(image_prefix)`.
 
 - [ ] Implement. Commit.
 
@@ -136,7 +137,7 @@ Upload via Prism API or `nutanix` CLI if present; else `curl` to images API usin
 
 `CanUpdateInPlace(currentImage, desiredImage, currentVer, desiredVer) bool` — true iff images equal and versions differ.
 
-`UpdateMachine` SSHes `prepare-capi-node` then `kubeadm upgrade apply` / `kubeadm upgrade node`.
+`UpdateMachine` SSHes `prepare-kubernetes-node` then `kubeadm upgrade apply` / `kubeadm upgrade node`.
 
 Step 9 patches KCP+MD version to NEW, waits Ready, prints Machine names (must be unchanged).
 
@@ -158,7 +159,7 @@ Step 9 patches KCP+MD version to NEW, waits Ready, prints Machine names (must be
 | FIPS kubeadm images | 5 |
 | OSArtifact VM disks | 6 |
 | Harbor configurable | 1 |
-| prepare-capi-node + re-run | 2 |
+| prepare-kubernetes-node + re-run | 2 |
 | CAPX cluster v1.35 + CAAPH | 7 |
 | In-place v1.36 | 8 |
 | Stepped scripts | 1, 9 |

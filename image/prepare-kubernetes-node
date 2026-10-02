@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+# Apply the known containerd + kubernetes sysext set so CABPK can run kubeadm.
+# Usage: prepare-kubernetes-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]
+set -euo pipefail
+
+CONTAINERD_VERSION="${CONTAINERD_VERSION:-2.4.0}"
+EXTENSIONS_REL="var/lib/kairos/extensions"
+SET_NAME="kubernetes-node.set"
+
+detect_os() {
+  local text="${1:-$(cat /etc/os-release 2>/dev/null || true)}"
+  local id="" version="" line
+  while IFS= read -r line; do
+    case "${line}" in
+      ID=*) id="${line#ID=}" ;;
+      VERSION_ID=*) version="${line#VERSION_ID=}" ;;
+    esac
+  done <<<"${text}"
+  id="${id//\"/}"
+  version="${version//\"/}"
+  case "${id}" in
+    ubuntu)
+      printf 'ubuntu-%s\n' "${version}"
+      ;;
+    rocky | rocky_linux)
+      printf 'rocky-%s\n' "${version%%.*}"
+      ;;
+    rhel)
+      printf 'rhel-%s\n' "${version%%.*}"
+      ;;
+    *)
+      printf 'unsupported os-release ID=%s VERSION_ID=%s\n' "${id}" "${version}" >&2
+      return 1
+      ;;
+  esac
+}
+
+detect_arch() {
+  local m="${1:-$(uname -m)}"
+  case "${m}" in
+    x86_64 | amd64) printf 'amd64\n' ;;
+    aarch64 | arm64) printf 'arm64\n' ;;
+    *)
+      printf 'unsupported arch: %s\n' "${m}" >&2
+      return 1
+      ;;
+  esac
+}
+
+containerd_ref() {
+  local registry="$1" os="$2" arch="$3" version="${4:-${CONTAINERD_VERSION}}"
+  printf '%s/containerd:%s-%s-%s\n' "${registry}" "${version}" "${os}" "${arch}"
+}
+
+kubernetes_ref() {
+  printf '%s/kubernetes:%s-%s\n' "$1" "$2" "$3"
+}
+
+set_file_contents() {
+  local registry="$1" os="$2" arch="$3" ver="$4" containerd_ver="${5:-${CONTAINERD_VERSION}}"
+  printf 'registry=%s\nos=%s\narch=%s\ncontainerd=%s\ncontainerd_cgroup=systemd\nkubernetes=%s\n' "${registry}" "${os}" "${arch}" "${containerd_ver}" "${ver}"
+}
+
+_set_field() {
+  local setfile="$1" key="$2" line
+  [[ -f "${setfile}" ]] || return 1
+  line="$(grep -E "^${key}=" "${setfile}" || true)"
+  [[ -n "${line}" ]] || return 1
+  printf '%s\n' "${line#"${key}="}"
+}
+
+already_applied() {
+  local setfile="$1" registry="$2" os="$3" arch="$4" ver="$5" containerd_ver="${6:-${CONTAINERD_VERSION}}"
+  [[ -f "${setfile}" ]] || return 1
+  [[ "$(cat "${setfile}")" == "$(set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}")" ]]
+}
+
+_root() {
+  printf '%s\n' "${PREPARE_KUBERNETES_NODE_ROOT:-}"
+}
+
+_log() {
+  [[ -n "${PREPARE_KUBERNETES_NODE_LOG:-}" ]] || return 0
+  printf '%s\n' "$1" >>"${PREPARE_KUBERNETES_NODE_LOG}"
+}
+
+_extensions_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/%s\n' "${r}" "${EXTENSIONS_REL}"
+  else
+    printf '/%s\n' "${EXTENSIONS_REL}"
+  fi
+}
+
+# kubeadm stats this directory while applying static-pod patches. It stays
+# empty until a caller supplies patch files.
+_kubeadm_patches_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/etc/kubernetes/patches\n' "${r}"
+  else
+    printf '/etc/kubernetes/patches\n'
+  fi
+}
+
+_pull_sysext() {
+  local ref="$1" name="$2" ext
+  ext="$(_extensions_dir)"
+  _log "pull ${ref}"
+  mkdir -p "${ext}"
+  if [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]]; then
+    printf 'test-sysext %s\n' "${ref}" >"${ext}/${name}-${ref##*:}.sysext.raw"
+    return 0
+  fi
+
+  # The OCI extension has a versioned name. Install it directly and enable
+  # that same name; do not rename it to a generic or .new staging filename.
+  kairos-agent sysext install "oci:${ref}" || return 1
+  kairos-agent sysext enable --active --now "${name}" || return 1
+}
+
+_refresh_sysext() {
+  if [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]]; then
+    return 0
+  fi
+  systemd-sysext refresh
+}
+
+_read_pause_tag() {
+  local f r tag
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    f="${r}/usr/lib/kairos/pause-tag"
+  else
+    f=/usr/lib/kairos/pause-tag
+  fi
+  if [[ ! -f "${f}" ]]; then
+    printf 'missing %s after sysext refresh\n' "${f}" >&2
+    return 1
+  fi
+  tag="$(tr -d '[:space:]' <"${f}")"
+  if [[ -z "${tag}" ]]; then
+    printf 'empty pause tag in %s\n' "${f}" >&2
+    return 1
+  fi
+  PAUSE_IMAGE_TAG="${tag}"
+}
+
+_sandbox_image() {
+  local registry="$1"
+  printf '%s/pause:%s\n' "${registry}" "${PAUSE_IMAGE_TAG}"
+}
+
+_containerd_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/etc/containerd\n' "${r}"
+  else
+    printf '/etc/containerd\n'
+  fi
+}
+
+_cni_bin_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/opt/cni/bin\n' "${r}"
+  else
+    printf '/opt/cni/bin\n'
+  fi
+}
+
+_write_containerd_config() {
+  local registry="$1" dir img
+  dir="$(_containerd_dir)"
+  img="$(_sandbox_image "${registry}")"
+  mkdir -p "${dir}/conf.d" "$(_cni_bin_dir)"
+  cat >"${dir}/conf.d/capi-sandbox.toml" <<EOF
+version = 4
+
+[plugins.'io.containerd.cri.v1.images'.pinned_images]
+  sandbox = "${img}"
+EOF
+  cat >"${dir}/conf.d/cgroup.toml" <<'EOF'
+version = 4
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  SystemdCgroup = true
+EOF
+  # /usr/lib/cni is the sysext copy of the stock plugins. /opt/cni/bin is
+  # writable and is where Cilium installs cilium-cni.
+  cat >"${dir}/conf.d/cni.toml" <<'EOF'
+version = 4
+
+[plugins.'io.containerd.cri.v1.runtime'.cni]
+  bin_dirs = ["/opt/cni/bin", "/usr/lib/cni"]
+EOF
+}
+
+_stop_kubelet() {
+  _log "stop kubelet"
+  [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]] && return 0
+  systemctl stop kubelet 2>/dev/null || true
+}
+
+_stop_containerd() {
+  _log "stop containerd"
+  [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]] && return 0
+  systemctl stop containerd 2>/dev/null || true
+}
+
+_start_runtime() {
+  _log "start runtime"
+  [[ -n "${PREPARE_KUBERNETES_NODE_ROOT:-}" ]] && return 0
+  systemctl enable --now containerd
+  systemctl enable --now kubelet
+}
+
+_restart_if_stopped() {
+  [[ "${_stopped:-0}" -eq 1 ]] || return 0
+  _start_runtime || true
+}
+
+prepare-kubernetes-node-main() {
+  local registry="" ver="" os="" arch="" pause_flag="" containerd_ver="${CONTAINERD_VERSION}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --registry) registry="${2:-}"; shift 2 ;;
+      --kubernetes-version) ver="${2:-}"; shift 2 ;;
+      --containerd-version) containerd_ver="${2:-}"; shift 2 ;;
+      --os) os="${2:-}"; shift 2 ;;
+      --arch) arch="${2:-}"; shift 2 ;;
+      --pause-tag) pause_flag="${2:-}"; shift 2 ;;
+      -h | --help)
+        printf 'usage: prepare-kubernetes-node --registry REGISTRY --kubernetes-version vX.Y.Z [--containerd-version X.Y.Z] [--os OS] [--arch ARCH] [--pause-tag TAG]\n' >&2
+        return 2
+        ;;
+      *)
+        printf 'unknown flag: %s\n' "$1" >&2
+        return 2
+        ;;
+    esac
+  done
+  if [[ -n "${pause_flag}" ]]; then
+    PAUSE_IMAGE_TAG="${pause_flag}"
+  fi
+  if [[ -z "${registry}" ]]; then
+    printf 'missing --registry (imageRepository prefix, e.g. harbor.example.com/project)\n' >&2
+    return 2
+  fi
+  if [[ -z "${ver}" ]]; then
+    printf 'missing --kubernetes-version\n' >&2
+    return 2
+  fi
+  if [[ -z "${os}" ]]; then
+    os="$(detect_os)"
+  fi
+  if [[ -z "${arch}" ]]; then
+    arch="$(detect_arch)"
+  fi
+
+  local ext setfile containerd_name k8s_name
+  ext="$(_extensions_dir)"
+  mkdir -p "${ext}"
+  setfile="${ext}/${SET_NAME}"
+  containerd_name="containerd"
+  k8s_name="kubernetes"
+  # kubeadm always stats this directory when applying static-pod patches. The
+  # directory is intentionally empty until a caller supplies patch files.
+  mkdir -p "$(_kubeadm_patches_dir)"
+
+  if already_applied "${setfile}" "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}"; then
+    printf 'prepare-kubernetes-node: already applied %s %s %s\n' "${os}" "${arch}" "${ver}"
+    return 0
+  fi
+
+  local containerd_changing=0 prev_reg prev_os prev_arch prev_containerd
+  prev_reg="$(_set_field "${setfile}" registry || true)"
+  prev_os="$(_set_field "${setfile}" os || true)"
+  prev_arch="$(_set_field "${setfile}" arch || true)"
+  prev_containerd="$(_set_field "${setfile}" containerd || true)"
+  if [[ ! -f "${setfile}" || "${prev_reg}" != "${registry}" || "${prev_os}" != "${os}" || "${prev_arch}" != "${arch}" || "${prev_containerd}" != "${containerd_ver}" ]]; then
+    containerd_changing=1
+  fi
+
+  # Install the versioned extensions before stopping anything. A failed
+  # install must leave kubelet running.
+  if [[ "${containerd_changing}" -eq 1 ]]; then
+    _pull_sysext "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "${containerd_name}" || return 1
+  fi
+  _pull_sysext "$(kubernetes_ref "${registry}" "${ver}" "${arch}")" "${k8s_name}" || return 1
+
+  _stopped=0
+  _stop_kubelet
+  _stopped=1
+  if [[ "${containerd_changing}" -eq 1 ]]; then
+    _stop_containerd
+  fi
+  _refresh_sysext || {
+    _restart_if_stopped
+    return 1
+  }
+  if [[ -z "${pause_flag}" ]]; then
+    _read_pause_tag || {
+      _restart_if_stopped
+      return 1
+    }
+  fi
+  _write_containerd_config "${registry}"
+  _start_runtime || return 1
+  _stopped=0
+  # Record success only after refresh and start. A failed refresh must not
+  # look already-applied on the next run.
+  set_file_contents "${registry}" "${os}" "${arch}" "${ver}" "${containerd_ver}" >"${setfile}"
+  printf 'prepare-kubernetes-node: applied containerd=%s kubernetes=%s\n' "$(containerd_ref "${registry}" "${os}" "${arch}" "${containerd_ver}")" "$(kubernetes_ref "${registry}" "${ver}" "${arch}")"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  prepare-kubernetes-node-main "$@"
+fi
