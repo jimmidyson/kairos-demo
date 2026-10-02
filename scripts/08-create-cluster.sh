@@ -125,8 +125,10 @@ until [[ -n "${kcp}" ]]; do
   fi
 done
 
-printf '  waiting for control plane %s Ready\n' "${kcp}"
-kubectl wait --for=condition=Ready "kubeadmcontrolplane/${kcp}" --timeout=60m
+printf '  waiting for control plane %s Available\n' "${kcp}"
+# v1beta2 KubeadmControlPlane has no Ready condition. Available is the
+# operational signal (API server, scheduler, controller-manager, etcd quorum).
+kubectl wait --for=condition=Available "kubeadmcontrolplane/${kcp}" --timeout=60m
 clusterctl get kubeconfig kairos-capi >"${ROOT}/build/kairos-capi.kubeconfig"
 kubectl --kubeconfig="${ROOT}/build/kairos-capi.kubeconfig" wait --for=condition=Ready node --all --timeout=60m
 

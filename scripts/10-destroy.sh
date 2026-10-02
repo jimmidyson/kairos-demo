@@ -20,6 +20,9 @@ export KUBECONFIG="${ROOT}/kairos-kind.kubeconfig"
 if kubectl get cluster kairos-capi >/dev/null 2>&1; then
   kubectl delete cluster kairos-capi --wait=true
 fi
+# The lifecycle hook adds an owner ref later. Delete it here too so a cluster
+# that never reached that hook does not leave the values ConfigMap behind.
+kubectl delete configmap kairos-capi-cilium-cni-helm-values --ignore-not-found --wait=true
 
 if [[ "${DESTROY_PRISM:-1}" != "0" ]]; then
   require_env NUTANIX_ENDPOINT

@@ -26,7 +26,8 @@ kcp="$(kubectl get kubeadmcontrolplane -l cluster.x-k8s.io/cluster-name=${cluste
 [[ -n "${kcp}" ]] || kcp="${cluster_name}-control-plane"
 
 kubectl wait --for=jsonpath='{.status.version}'="${VER}" "kubeadmcontrolplane/${kcp}" --timeout=45m
-kubectl wait --for=condition=Ready "kubeadmcontrolplane/${kcp}" --timeout=45m
+# v1beta2 KubeadmControlPlane has no Ready condition.
+kubectl wait --for=condition=Available "kubeadmcontrolplane/${kcp}" --timeout=45m
 
 md="$(kubectl get machinedeployment -l cluster.x-k8s.io/cluster-name=${cluster_name} -o jsonpath='{.items[0].metadata.name}')"
 [[ -n "${md}" ]] || md="${cluster_name}-md-0"

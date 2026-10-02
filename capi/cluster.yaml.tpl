@@ -4,6 +4,13 @@ metadata:
   name: ${CLUSTER_NAME}
   namespace: default
 spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+    services:
+      cidrBlocks:
+      - 10.128.0.0/12
   topology:
     classRef:
       name: nutanix-quick-start
@@ -22,6 +29,10 @@ spec:
           cni:
             provider: Cilium
             strategy: HelmAddon
+            values:
+              sourceRef:
+                kind: ConfigMap
+                name: ${CLUSTER_NAME}-cilium-cni-helm-values
         kubeProxy:
           mode: disabled
         kubernetesImageRepository: ${PREFIX}

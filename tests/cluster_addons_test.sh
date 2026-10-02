@@ -18,7 +18,16 @@ export NUTANIX_PRISM_ELEMENT_CLUSTER_NAME=pe-1 NUTANIX_SUBNET_NAME=subnet-1
 unset NUTANIX_CA_FILE NUTANIX_INSECURE
 
 rendered="$(bash "${ROOT}/scripts/render_cluster.sh")"
+printf '%s\n' "${rendered}" | grep -q '192.168.0.0/16' || fail "default pod cidr"
+printf '%s\n' "${rendered}" | grep -q '10.128.0.0/12' || fail "default service cidr"
 printf '%s\n' "${rendered}" | grep -q 'provider: Cilium' || fail "cilium addon"
+printf '%s\n' "${rendered}" | grep -q 'name: kairos-capi-cilium-cni-helm-values' || fail "cilium values ref"
+printf '%s\n' "${rendered}" | grep -q 'kind: ConfigMap' || fail "cilium values configmap"
+printf '%s\n' "${rendered}" | grep -q 'masquerade: true' || fail "bpf masquerade"
+printf '%s\n' "${rendered}" | grep -q 'datapathMode: netkit' || fail "cilium netkit"
+printf '%s\n' "${rendered}" | grep -q 'mode: multi-pool' || fail "cilium multi-pool"
+printf '%s\n' "${rendered}" | grep -q 'autoCreateCiliumPodIPPools' || fail "default cilium pod ip pool"
+printf '%s\n' "${rendered}" | grep -q 'kubeProxyReplacement: true' || fail "custom values must keep kube-proxy replacement"
 printf '%s\n' "${rendered}" | grep -q 'mode: disabled' || fail "kube-proxy must be disabled"
 printf '%s\n' "${rendered}" | grep -q 'strategy: HelmAddon' || fail "helm addon strategy"
 printf '%s\n' "${rendered}" | grep -q 'name: nutanix-credentials' || fail "ccm credential secret"

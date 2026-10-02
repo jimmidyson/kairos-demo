@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Render the CAPX Cluster. CAREN deploys Cilium and Nutanix CCM from clusterConfig.addons.
+# Render the CAPX Cluster and the Cilium Helm values ConfigMap.
+# CAREN deploys Cilium and Nutanix CCM from clusterConfig.addons.
 # Prism TLS follows NUTANIX_INSECURE / NUTANIX_CA_FILE. A CA file wins and forces insecure false,
 # matching the old CCM Helm values. additionalTrustBundle is the base64 PEM CAREN expects.
 set -euo pipefail
@@ -26,5 +27,8 @@ for v in CLUSTER_NAME KUBERNETES_VERSION PREFIX \
   fi
 done
 
-envsubst '${CLUSTER_NAME} ${KUBERNETES_VERSION} ${PREFIX} ${NUTANIX_SSH_AUTHORIZED_KEY} ${CONTROL_PLANE_ENDPOINT_IP} ${NUTANIX_ENDPOINT} ${NUTANIX_PRISM_ELEMENT_CLUSTER_NAME} ${NUTANIX_SUBNET_NAME} ${PRISM_INSECURE} ${PRISM_TRUST_LINE}' \
-  <"${ROOT}/capi/cluster.yaml.tpl"
+{
+  cat "${ROOT}/capi/cluster.yaml.tpl"
+  printf '\n---\n'
+  cat "${ROOT}/capi/cilium-helm-values.yaml.tpl"
+} | envsubst '${CLUSTER_NAME} ${KUBERNETES_VERSION} ${PREFIX} ${NUTANIX_SSH_AUTHORIZED_KEY} ${CONTROL_PLANE_ENDPOINT_IP} ${NUTANIX_ENDPOINT} ${NUTANIX_PRISM_ELEMENT_CLUSTER_NAME} ${NUTANIX_SUBNET_NAME} ${PRISM_INSECURE} ${PRISM_TRUST_LINE}'
