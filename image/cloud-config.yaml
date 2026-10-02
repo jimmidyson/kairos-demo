@@ -6,6 +6,8 @@
 # then covers /usr/local with a read-only /usr overlay, so writes through
 # the symlink fail. The boot stage below, and the ClusterClass
 # preKubeadmCommand, replace the symlink with a regular /etc/hosts.
+# /opt is not a sysext hierarchy. Cilium writes /opt/cni/bin. Stock CNI
+# plugins ship at /usr/lib/cni, under the existing /usr/lib hierarchy.
 
 name: "capi-kairos-base"
 
@@ -35,7 +37,7 @@ stages:
             ExecStart=systemd-sysext refresh --image-policy="root=verity+signed+absent:usr=verity+signed+absent"
             ExecReload=
             ExecReload=systemd-sysext refresh --image-policy="root=verity+signed+absent:usr=verity+signed+absent"
-            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin:/opt"
+            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin"
             [Unit]
             JobRunningTimeoutSec=5
 
@@ -53,7 +55,7 @@ stages:
             ExecStart=systemd-sysext refresh --image-policy="root=verity+absent:usr=verity+absent"
             ExecReload=
             ExecReload=systemd-sysext refresh --image-policy="root=verity+absent:usr=verity+absent"
-            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin:/opt"
+            Environment="SYSTEMD_SYSEXT_HIERARCHIES=/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin"
             [Unit]
             JobRunningTimeoutSec=5
 
@@ -65,7 +67,7 @@ stages:
           owner: 0
           group: 0
           content: |
-            export SYSTEMD_SYSEXT_HIERARCHIES="/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin:/opt"
+            export SYSTEMD_SYSEXT_HIERARCHIES="/usr/local/bin:/usr/local/sbin:/usr/local/include:/usr/local/lib:/usr/local/share:/usr/local/src:/usr/bin:/usr/share:/usr/lib:/usr/include:/usr/src:/usr/sbin"
 
     - name: "systemd-sysext initramfs settings"
       if: '[ -e "/sbin/systemctl" ] || [ -e "/usr/bin/systemctl" ] || [ -e "/usr/sbin/systemctl" ] || [ -e "/bin/systemctl" ]'

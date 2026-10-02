@@ -54,7 +54,9 @@ COPY --from=build /src/containerd/bin/containerd /usr/bin/containerd
 COPY --from=build /src/containerd/bin/containerd-shim-runc-v2 /usr/bin/containerd-shim-runc-v2
 COPY --from=build /src/containerd/bin/ctr /usr/bin/ctr
 COPY --from=build /src/runc/runc /usr/bin/runc
-COPY --from=build /src/plugins/bin /opt/cni/bin
+# /usr/lib is already a sysext hierarchy. /opt is not, so Cilium can write
+# /opt/cni/bin. containerd searches both directories.
+COPY --from=build /src/plugins/bin /usr/lib/cni
 COPY sysexts/containerd.service /usr/lib/systemd/system/containerd.service
 
 # AuroraBoot packs only the final image layer. Flatten the distro and all

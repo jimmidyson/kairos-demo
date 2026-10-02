@@ -164,11 +164,21 @@ _containerd_dir() {
   fi
 }
 
+_cni_bin_dir() {
+  local r
+  r="$(_root)"
+  if [[ -n "${r}" ]]; then
+    printf '%s/opt/cni/bin\n' "${r}"
+  else
+    printf '/opt/cni/bin\n'
+  fi
+}
+
 _write_containerd_config() {
   local registry="$1" dir img
   dir="$(_containerd_dir)"
   img="$(_sandbox_image "${registry}")"
-  mkdir -p "${dir}/conf.d"
+  mkdir -p "${dir}/conf.d" "$(_cni_bin_dir)"
   cat >"${dir}/conf.d/capi-sandbox.toml" <<EOF
 version = 4
 
@@ -180,6 +190,14 @@ version = 4
 
 [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
   SystemdCgroup = true
+EOF
+  # /usr/lib/cni is the sysext copy of the stock plugins. /opt/cni/bin is
+  # writable and is where Cilium installs cilium-cni.
+  cat >"${dir}/conf.d/cni.toml" <<'EOF'
+version = 4
+
+[plugins.'io.containerd.cri.v1.runtime'.cni]
+  bin_dirs = ["/opt/cni/bin", "/usr/lib/cni"]
 EOF
 }
 

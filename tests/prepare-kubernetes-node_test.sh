@@ -59,6 +59,9 @@ grep -q 'sandbox = "' "${tmpdir}/etc/containerd/conf.d/capi-sandbox.toml" || fai
 grep -q '^version = 4$' "${tmpdir}/etc/containerd/conf.d/cgroup.toml" || fail "containerd cgroup drop-in version"
 grep -q "io.containerd.cri.v1.runtime" "${tmpdir}/etc/containerd/conf.d/cgroup.toml" || fail "containerd 2 cgroup key"
 grep -q 'SystemdCgroup = true' "${tmpdir}/etc/containerd/conf.d/cgroup.toml" || fail "containerd systemd cgroup"
+grep -q '^version = 4$' "${tmpdir}/etc/containerd/conf.d/cni.toml" || fail "containerd cni drop-in version"
+grep -q 'bin_dirs = \["/opt/cni/bin", "/usr/lib/cni"\]' "${tmpdir}/etc/containerd/conf.d/cni.toml" || fail "containerd cni bin dirs"
+[[ -d "${tmpdir}/opt/cni/bin" ]] || fail "cilium bin dir not created"
 [[ ! -e "${tmpdir}/etc/containerd/config.toml" ]] || fail "prepare-kubernetes-node must not create containerd config"
 grep -q 'containerd_cgroup=systemd' "${tmpdir}/var/lib/kairos/extensions/kubernetes-node.set" || fail "systemd cgroup state"
 
